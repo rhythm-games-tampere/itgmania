@@ -1198,9 +1198,11 @@ void Player::Update( float fDeltaTime )
 	// process transforms that are waiting to be applied
 	ApplyWaitingTransforms();
 
+	/*
     if (m_bBroadcastScoreThisUpdate && SYNCMAN->isEnabled() && m_pPlayerStageStats) {
         SYNCMAN->broadcastScoreChange(*m_pPlayerStageStats);
     }
+    */
 }
 
 // Update a group of holds with shared scoring/life. All of these holds will have the same start row.

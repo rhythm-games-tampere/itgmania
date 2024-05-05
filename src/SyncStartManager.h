@@ -35,10 +35,10 @@ public:
 	void broadcastStarting();
 	void broadcastSelectedSong(const Song& song);
 	void broadcastSelectedCourse(const Course& course);
-	void broadcastScoreChange(const PlayerStageStats& pPlayerStageStats);
-    void broadcastFinalScore(const PlayerStageStats& pPlayerStageStats);
-    void broadcastFinalCourseScore(const PlayerStageStats& pPlayerStageStats);
-	[[nodiscard]] std::stringstream writeScoreMessage(const PlayerStageStats& pPlayerStageStats, bool isCourseScore) const;
+	void broadcastScoreChange(const PlayerStageStats& pPlayerStageStats, int whiteCount, int currentDp, int possibleDp);
+    void broadcastFinalScore(const PlayerStageStats& pPlayerStageStats, int whiteCount, int currentDp, int possibleDp);
+    void broadcastFinalCourseScore(const PlayerStageStats& pPlayerStageStats, int whiteCount, int currentDp, int possibleDp);
+	[[nodiscard]] std::stringstream writeScoreMessage(const PlayerStageStats& pPlayerStageStats, bool isCourseScore, int whiteCount, int currentDp, int possibleDp) const;
     void broadcastMarathonSongLoading();
     void broadcastMarathonSongReady();
 	void receiveScoreChange(struct in_addr in_addr, const std::string& msg);

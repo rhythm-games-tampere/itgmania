@@ -21,7 +21,7 @@ struct ScoreData {
     std::string formattedScore;
 	float life;
 	bool failed;
-	int tapNoteScores[NUM_TapNoteScore];
+	int tapNoteScores[NUM_TapNoteScore + 1]; // White count added
 	int holdNoteScores[NUM_HoldNoteScore];
 	int totalHolds;
 };
