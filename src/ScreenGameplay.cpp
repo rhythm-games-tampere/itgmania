@@ -1664,7 +1664,8 @@ void ScreenGameplay::Update( float fDeltaTime )
 			// send initial score
 			for (auto pi = GetNextEnabledPlayerInfo(m_vPlayerInfo.begin(), m_vPlayerInfo); pi != m_vPlayerInfo.end(); pi = GetNextEnabledPlayerInfo(++pi, m_vPlayerInfo))
 			{
-				SYNCMAN->broadcastScoreChange(*pi->GetPlayerStageStats());
+				auto playerStageStats = *pi->GetPlayerStageStats();
+				SYNCMAN->broadcastScoreChange(playerStageStats, 0, playerStageStats.m_iActualDancePoints, playerStageStats.m_iCurPossibleDancePoints);
 			}
 
 			return;

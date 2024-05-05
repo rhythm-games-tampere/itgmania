@@ -75,10 +75,10 @@ std::string CourseToString(const Course& course) {
 	return course.m_sGroupName + '/' + *bits.rbegin();
 }
 
-std::string formatScore(const PlayerStageStats& pPlayerStageStats) {
+std::string formatScore(int currentDp, int possibleDp) {
 	return ssprintf("%.*f",
 			(int) CommonMetrics::PERCENT_SCORE_DECIMAL_PLACES,
-			pPlayerStageStats.GetPercentDancePoints() * 100 );
+			PlayerStageStats::MakePercentScore(currentDp, possibleDp) * 100 );
 }
 
 SyncStartManager::SyncStartManager()
@@ -173,22 +173,22 @@ void SyncStartManager::broadcastSelectedCourse(const Course& course) {
 	this->broadcast(SONG, CourseToString(course));
 }
 
-void SyncStartManager::broadcastScoreChange(const PlayerStageStats& pPlayerStageStats) {
-	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false);
+void SyncStartManager::broadcastScoreChange(const PlayerStageStats& pPlayerStageStats, int whiteCount, int currentDp, int possibleDp) {
+	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false, whiteCount, currentDp, possibleDp);
     this->broadcast(SCORE, msg.str());
 }
 
-void SyncStartManager::broadcastFinalScore(const PlayerStageStats& pPlayerStageStats) {
-	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false);
+void SyncStartManager::broadcastFinalScore(const PlayerStageStats& pPlayerStageStats, int whiteCount, int currentDp, int possibleDp) {
+	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false, whiteCount, currentDp, possibleDp);
     this->broadcast(FINAL_SCORE, msg.str());
 }
 
-void SyncStartManager::broadcastFinalCourseScore(const PlayerStageStats& pPlayerStageStats) {
-	std::stringstream msg = writeScoreMessage(pPlayerStageStats, true);
+void SyncStartManager::broadcastFinalCourseScore(const PlayerStageStats& pPlayerStageStats, int whiteCount, int currentDp, int possibleDp) {
+	std::stringstream msg = writeScoreMessage(pPlayerStageStats, true, whiteCount, currentDp, possibleDp);
     this->broadcast(FINAL_COURSE_SCORE, msg.str());
 }
 
-std::stringstream SyncStartManager::writeScoreMessage(const PlayerStageStats& pPlayerStageStats, bool isCourseScore) const {
+std::stringstream SyncStartManager::writeScoreMessage(const PlayerStageStats& pPlayerStageStats, bool isCourseScore, int whiteCount, int currentDp, int possibleDp) const {
     std::stringstream msg;
 
     std::string playerName = PROFILEMAN->GetPlayerName(pPlayerStageStats.m_player_number);
@@ -214,16 +214,21 @@ std::stringstream SyncStartManager::writeScoreMessage(const PlayerStageStats& pP
 
     msg << (int) pPlayerStageStats.m_player_number << '|';
     msg << playerName << '|';
-    msg << pPlayerStageStats.m_iActualDancePoints << '|';
-    msg << pPlayerStageStats.m_iCurPossibleDancePoints << '|';
-    msg << pPlayerStageStats.m_iPossibleDancePoints << '|';
-    msg << formatScore(pPlayerStageStats) << '|';
+    msg << currentDp << '|';
+    msg << possibleDp << '|';
+    msg << possibleDp << '|';
+    msg << formatScore(currentDp, possibleDp) << '|';
     msg << pPlayerStageStats.GetCurrentLife() << '|';
     msg << (pPlayerStageStats.m_bFailed ? '1' : '0') << '|';
 
-    for (int m_iTapNoteScore : pPlayerStageStats.m_iTapNoteScores) {
-        msg << m_iTapNoteScore << '|';
-    }
+	for (int i = 0; i < NUM_TapNoteScore; i++) {
+		msg << pPlayerStageStats.m_iTapNoteScores[i] << '|';
+
+		// Add white count as the second-best judgment
+		if (i == 8) {
+			msg << whiteCount << '|';
+		}
+	}
 
     for (int m_iHoldNoteScore : pPlayerStageStats.m_iHoldNoteScores) {
         msg << m_iHoldNoteScore << '|';
@@ -461,25 +466,42 @@ class LunaSyncStartManager: public Luna<SyncStartManager> {
 			return 1;
 		}
 
+		static int BroadcastScoreChange( T* p, lua_State *L )
+		{
+			const PlayerStageStats* playerStageStats = Luna<PlayerStageStats>::check(L,1);
+			const int whiteCount = IArg(2);
+			const int currentDp = IArg(3);
+			const int possibleDp = IArg(4);
+			p->broadcastScoreChange(*playerStageStats, whiteCount, currentDp, possibleDp);
+			return 1;
+		}
+
         static int BroadcastFinalScore( T* p, lua_State *L )
         {
             const PlayerStageStats* playerStageStats = Luna<PlayerStageStats>::check(L,1);
-            p->broadcastFinalScore(*playerStageStats);
+			const int whiteCount = IArg(2);
+			const int currentDp = IArg(3);
+			const int possibleDp = IArg(4);
+            p->broadcastFinalScore(*playerStageStats, whiteCount, currentDp, possibleDp);
             return 1;
         }
 
         static int BroadcastFinalCourseScore( T* p, lua_State *L )
         {
             const PlayerStageStats* playerStageStats = Luna<PlayerStageStats>::check(L,1);
-            p->broadcastFinalCourseScore(*playerStageStats);
+			const int whiteCount = IArg(2);
+			const int currentDp = IArg(3);
+			const int possibleDp = IArg(4);
+            p->broadcastFinalCourseScore(*playerStageStats, whiteCount, currentDp, possibleDp);
             return 1;
         }
 
 		LunaSyncStartManager()
 		{
-			ADD_METHOD(IsEnabled );
+			ADD_METHOD(IsEnabled);
 			ADD_METHOD(GetCurrentPlayerScores);
 			ADD_METHOD(GetLatestPlayerScores);
+			ADD_METHOD(BroadcastScoreChange);
             ADD_METHOD(BroadcastFinalScore);
             ADD_METHOD(BroadcastFinalCourseScore);
 		}
