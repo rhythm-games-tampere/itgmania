@@ -33,7 +33,7 @@ SyncStartManager *SYNCMAN;
 #define FINAL_COURSE_SCORE 0x06
 
 #define MISC_ITEMS_LENGTH 10
-#define ALL_ITEMS_LENGTH (MISC_ITEMS_LENGTH + NUM_TapNoteScore + NUM_HoldNoteScore)
+#define ALL_ITEMS_LENGTH (MISC_ITEMS_LENGTH + NUM_TapNoteScore + 1 + NUM_HoldNoteScore) // add 1 for white count
 
 std::vector<std::string> split(const std::string& str, const std::string& delim) {
 	std::vector<std::string> tokens;
