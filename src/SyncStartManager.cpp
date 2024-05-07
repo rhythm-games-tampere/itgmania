@@ -222,11 +222,17 @@ std::stringstream SyncStartManager::writeScoreMessage(const PlayerStageStats& pP
     msg << (pPlayerStageStats.m_bFailed ? '1' : '0') << '|';
 
 	for (int i = 0; i < NUM_TapNoteScore; i++) {
-		msg << pPlayerStageStats.m_iTapNoteScores[i] << '|';
-
 		// Add white count as the second-best judgment
 		if (i == 8) {
+			msg << pPlayerStageStats.m_iTapNoteScores[i] << '|';
 			msg << whiteCount << '|';
+		}
+		// Subtract white count from blue count
+		else if (i == 9) {
+			msg << (pPlayerStageStats.m_iTapNoteScores[i] - whiteCount) << '|';
+		}
+		else {
+			msg << pPlayerStageStats.m_iTapNoteScores[i] << '|';
 		}
 	}
 
