@@ -14,6 +14,7 @@
 #include "GameState.h"
 #include "MemoryCardManager.h"
 #include "ScreenManager.h"
+#include "Screen.h"
 #include "InputFilter.h"
 #include "InputMapper.h"
 #include "RageFileManager.h"
@@ -285,28 +286,43 @@ void GameLoop::UpdateAllButDraw(bool bRunningFromVBLANK)
 
 	fDeltaTime *= g_fUpdateRate;
 
-	// Update SOUNDMAN early (before any RageSound::GetPosition calls), to flush position data.
-	SOUNDMAN->Update();
-
-	/* Update song beat information -before- calling update on all the classes that
-	 * depend on it. If you don't do this first, the classes are all acting on old
-	 * information and will lag. (but no longer fatally, due to timestamping -glenn) */
-	SOUND->Update(fDeltaTime);
-	TEXTUREMAN->Update(fDeltaTime);
-	GAMESTATE->Update(fDeltaTime);
-	SCREENMAN->Update(fDeltaTime);
-	MEMCARDMAN->Update();
 	SYNCMAN->Update();
 
-	/* Important: Process input AFTER updating game logic, or input will be
-	 * acting on song beat from last frame */
-	HandleInputEvents(fDeltaTime);
+	if( !SYNCMAN->IsWaiting() )
+	{
+		// Update SOUNDMAN early (before any RageSound::GetPosition calls), to flush position data.
+		SOUNDMAN->Update();
 
-	// Update the lights
-	LIGHTSMAN->Update(fDeltaTime);
+		/* Update song beat information -before- calling update on all the classes that
+		 * depend on it. If you don't do this first, the classes are all acting on old
+		 * information and will lag. (but no longer fatally, due to timestamping -glenn) */
+		SOUND->Update(fDeltaTime);
+		TEXTUREMAN->Update(fDeltaTime);
+		GAMESTATE->Update(fDeltaTime);
+		SCREENMAN->Update(fDeltaTime);
+		MEMCARDMAN->Update();
 
-	// Process broadcast queue from other threads
-	MESSAGEMAN->HandleQueuedBroadcasts();
+		/* Important: Process input AFTER updating game logic, or input will be
+		 * acting on song beat from last frame */
+		HandleInputEvents(fDeltaTime);
+
+		// Update the lights
+		LIGHTSMAN->Update(fDeltaTime);
+
+		// Process broadcast queue from other threads
+		MESSAGEMAN->HandleQueuedBroadcasts();
+	}
+	else
+	{
+		if( SCREENMAN->GetTopScreen()->IsFirstUpdate() )
+		{
+			// When waiting for sync start, we need to do one screen update
+			// to display the "Waiting" text and start receiving input
+			// events (START or BACK to skip waiting or to back out).
+			SCREENMAN->Update(fDeltaTime);
+		}
+		HandleInputEvents(fDeltaTime);
+	}
 }
 
 void GameLoop::RunGameLoop()

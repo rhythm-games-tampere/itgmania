@@ -334,13 +334,6 @@ protected:
 	// announcer sound needs to be delayed.  See HandleScreenMessage for more.
 	// -Kyz
 	bool m_delaying_ready_announce;
-
-	bool m_bWaitingForSyncStart;
-
-	// Time we have waited after finishing a song in marathon mode
-	float m_fTimeWaiting;
-
-	bool m_bSongReadySent;
 };
 
 std::vector<PlayerInfo>::iterator GetNextEnabledPlayerInfo		( std::vector<PlayerInfo>::iterator iter, std::vector<PlayerInfo> &v );

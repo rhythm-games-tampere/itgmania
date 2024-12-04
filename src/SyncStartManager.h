@@ -8,6 +8,7 @@
 #include "PlayerNumber.h"
 #include "PlayerStageStats.h"
 #include "SyncStartScoreKeeper.h"
+#include "RageTimer.h"
 #include "Song.h"
 #include "Course.h"
 
@@ -25,6 +26,7 @@ private:
 	std::string activeSyncStartSong;
 	bool shouldStart;
     int machinesLoadingNextSongCounter;
+	RageTimer broadcastMarathonSongReadyRequested;
 
 	SyncStartScoreKeeper syncStartScoreKeeper;
 public:
@@ -53,6 +55,7 @@ public:
 	bool AttemptStart();
 	void StopListeningScoreChanges();
 	void SongChangedDuringGameplay(const Song& song);
+	bool IsWaiting() const { return waitingForSynchronizedStarting; }
 
 	// Lua
 	void PushSelf( lua_State *L );
