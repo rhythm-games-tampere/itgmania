@@ -15,7 +15,7 @@ float getScore(const SyncStartScore& score) {
 		return 0;
 	}
 
-	return clamp(score.data.actualDancePoints / (float) score.data.possibleDancePoints, 0.0f, 1.0f);
+	return std::clamp(score.data.actualDancePoints / (float) score.data.possibleDancePoints, 0.0f, 1.0f);
 }
 
 int getLostDancePoints(const SyncStartScore& score) {
