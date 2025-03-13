@@ -86,6 +86,7 @@
 #include "StepsDisplay.h"
 #include "StepsUtil.h"
 #include "Style.h"
+#include "SyncStartManager.h"
 #include "ThemeManager.h"
 #include "ThemeMetric.h"
 #include "Trail.h"
@@ -380,7 +381,9 @@ ScreenGameplay::ScreenGameplay() {
   m_pSongBackground = nullptr;
   m_pSongForeground = nullptr;
   m_delaying_ready_announce = false;
+  m_bWaitingForSyncStart = false;
   GAMESTATE->m_AdjustTokensBySongCostForFinalStageCheck = false;
+  m_bSongReadySent = false;
 }
 
 void ScreenGameplay::Init() {
@@ -1419,6 +1422,10 @@ void ScreenGameplay::LoadNextSong() {
   }
 
   MESSAGEMAN->Broadcast("DoneLoadingNextSong");
+
+  if (SYNCMAN->isEnabled() && pSong != nullptr) {
+    SYNCMAN->SongChangedDuringGameplay(*pSong);
+  }
 }
 
 void ScreenGameplay::LoadLights() {
@@ -1654,7 +1661,18 @@ void ScreenGameplay::BeginScreen() {
 
   SOUND->PlayOnceFromAnnouncer("gameplay intro");  // crowd cheer
 
-  StartPlayingSong(MIN_SECONDS_TO_STEP, MIN_SECONDS_TO_MUSIC);
+  if (SYNCMAN->isEnabled() && GAMESTATE->m_pCurSong != nullptr) {
+    SYNCMAN->StartListeningForSynchronizedStart(*GAMESTATE->m_pCurSong);
+    StartPlayingSong(0, 0);
+    m_pSoundMusic->Stop();
+    m_bWaitingForSyncStart = true;
+  } else {
+    StartPlayingSong(MIN_SECONDS_TO_STEP, MIN_SECONDS_TO_MUSIC);
+  }
+}
+
+void ScreenGameplay::EndScreen() {
+  SYNCMAN->StopListeningForSynchronizedStart();
 }
 
 bool ScreenGameplay::AllAreFailing() {
@@ -1714,6 +1732,56 @@ void ScreenGameplay::Update(float fDeltaTime) {
      * to make sure we receive the next-screen message. */
     Screen::Update(fDeltaTime);
     return;
+  }
+
+  if (m_bWaitingForSyncStart) {
+    m_fTimeWaiting += fDeltaTime;
+
+    if (GAMESTATE->IsCourseMode() && GAMESTATE->GetCourseSongIndex() > 0 &&
+        !m_bSongReadySent && m_fTimeWaiting > 2.0f) {
+      SYNCMAN->broadcastMarathonSongReady();
+      m_bSongReadySent = true;
+    }
+
+    if (SYNCMAN->AttemptStart()) {
+      m_bWaitingForSyncStart = false;
+      SCREENMAN->HideSystemMessage();
+
+      RageSoundParams p;
+      p.m_fSpeed = GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate;
+      p.StopMode = RageSoundParams::M_CONTINUE;
+      const float fFirstSecond = GAMESTATE->m_pCurSong->GetFirstSecond();
+      float fStartDelay = MIN_SECONDS_TO_STEP - fFirstSecond;
+      fStartDelay = fmax(fStartDelay, (float)MIN_SECONDS_TO_MUSIC);
+      p.m_StartSecond = -fStartDelay;
+      m_pSoundMusic->Play(false, &p);
+      UpdateSongPosition(0);
+      Screen::Update(0);
+
+      // send initial score
+      for (auto pi =
+               GetNextEnabledPlayerInfo(m_vPlayerInfo.begin(), m_vPlayerInfo);
+           pi != m_vPlayerInfo.end();
+           pi = GetNextEnabledPlayerInfo(++pi, m_vPlayerInfo)) {
+        auto playerStageStats = *pi->GetPlayerStageStats();
+        SYNCMAN->broadcastScoreChange(
+            playerStageStats, 0, 0, 0, 0, 0, 0, 0,
+            playerStageStats.m_iActualDancePoints,
+            playerStageStats.m_iCurPossibleDancePoints, "0.00");
+      }
+
+      return;
+    } else {
+      if (GAMESTATE->IsCourseMode() && GAMESTATE->GetCourseSongIndex() > 0) {
+        SCREENMAN->SystemMessageNoAnimate("Wait...");
+      } else {
+        SCREENMAN->SystemMessageNoAnimate(
+            "Waiting for synchronized start - press START to begin on all "
+            "machines!");
+      }
+
+      Screen::Update(0);
+    }
   }
 
   UpdateSongPosition(fDeltaTime);
@@ -2400,6 +2468,7 @@ void ScreenGameplay::SendCrossedMessages() {
 }
 
 void ScreenGameplay::BeginBackingOutFromGameplay() {
+  m_bWaitingForSyncStart = false;
   m_DancingState = STATE_OUTRO;
   ResetGiveUpTimers(false);
 
@@ -2458,6 +2527,12 @@ bool ScreenGameplay::Input(const InputEventPlus& input) {
   Message msg("");
   if (m_Codes.InputMessage(input, msg)) {
     this->HandleMessage(msg);
+  }
+
+  if (m_bWaitingForSyncStart && input.MenuI == GAME_BUTTON_START &&
+      input.type == IET_FIRST_PRESS) {
+    SYNCMAN->broadcastStarting();
+    return true;
   }
 
   if (m_bPaused) {
@@ -2933,6 +3008,10 @@ void ScreenGameplay::HandleScreenMessage(const ScreenMessage SM) {
 
     MESSAGEMAN->Broadcast("ChangeCourseSongOut");
 
+    SYNCMAN->broadcastMarathonSongLoading();
+    m_bSongReadySent = false;
+    m_fTimeWaiting = 0;
+
     GAMESTATE->m_bLoadingNextSong = false;
     LoadNextSong();
 
@@ -2940,7 +3019,11 @@ void ScreenGameplay::HandleScreenMessage(const ScreenMessage SM) {
     m_NextSong.PlayCommand("Finish");
     m_NextSong.StartTransitioning(SM_None);
 
-    StartPlayingSong(MIN_SECONDS_TO_STEP_NEXT_SONG, 0);
+    if (SYNCMAN->isEnabled()) {
+      m_bWaitingForSyncStart = true;
+    } else {
+      StartPlayingSong(MIN_SECONDS_TO_STEP_NEXT_SONG, 0);
+    }
   } else if (SM == SM_PlayToasty) {
     if (g_bEasterEggs) {
       if (PREFSMAN->m_AllowMultipleToasties || m_Toasty.IsWaiting()) {
@@ -3084,6 +3167,7 @@ void ScreenGameplay::HandleMessage(const Message& msg) {
 
 void ScreenGameplay::Cancel(ScreenMessage smSendWhenDone) {
   m_pSoundMusic->Stop();
+  m_bWaitingForSyncStart = false;
 
   ScreenWithMenuElements::Cancel(smSendWhenDone);
 }
