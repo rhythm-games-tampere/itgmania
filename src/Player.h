@@ -233,6 +233,8 @@ protected:
 
 	std::vector<RageSound>	m_vKeysounds;
 
+	bool 			m_bBroadcastScoreThisUpdate;
+
 	ThemeMetric<float>	GRAY_ARROWS_Y_STANDARD;
 	ThemeMetric<float>	GRAY_ARROWS_Y_REVERSE;
 	ThemeMetric2D<float>	ATTACK_DISPLAY_X;

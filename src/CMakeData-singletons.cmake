@@ -22,6 +22,7 @@ list(APPEND SMDATA_GLOBAL_SINGLETON_SRC
             "ScreenManager.cpp"
             "SongManager.cpp"
             "StatsManager.cpp"
+            "SyncStartManager.cpp"
             "ThemeManager.cpp"
             "UnlockManager.cpp")
 list(APPEND SMDATA_GLOBAL_SINGLETON_HPP
@@ -48,6 +49,7 @@ list(APPEND SMDATA_GLOBAL_SINGLETON_HPP
             "ScreenManager.h"
             "SongManager.h"
             "StatsManager.h"
+            "SyncStartManager.h"
             "ThemeManager.h"
             "UnlockManager.h")
 

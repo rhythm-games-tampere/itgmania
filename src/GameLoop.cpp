@@ -20,6 +20,7 @@
 #include "LightsManager.h"
 #include "RageTimer.h"
 #include "RageInput.h"
+#include "SyncStartManager.h"
 
 #include <cmath>
 #include <vector>
@@ -295,6 +296,7 @@ void GameLoop::UpdateAllButDraw(bool bRunningFromVBLANK)
 	GAMESTATE->Update(fDeltaTime);
 	SCREENMAN->Update(fDeltaTime);
 	MEMCARDMAN->Update();
+	SYNCMAN->Update();
 
 	/* Important: Process input AFTER updating game logic, or input will be
 	 * acting on song beat from last frame */
