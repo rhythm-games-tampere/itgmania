@@ -80,6 +80,7 @@
 #include "SongManager.h"
 #include "SpecialFiles.h"
 #include "StatsManager.h"
+#include "SyncStartManager.h"
 #include "ThemeManager.h"
 #include "UnlockManager.h"
 #include "ver.h"
@@ -941,6 +942,7 @@ int sm_main(int argc, char* argv[]) {
   SONGMAN->UpdatePreferredSort();
   NETWORK = new NetworkManager;
   STATSMAN = new StatsManager;
+  SYNCMAN = new SyncStartManager;
 
   // Initialize which courses are ranking courses here.
   SONGMAN->UpdateRankingCourses();

@@ -23,6 +23,7 @@
 #include "RageTimer.h"
 #include "RageUtil.h"
 #include "ScreenManager.h"
+#include "SyncStartManager.h"
 #include "ThemeManager.h"
 #include "arch/ArchHooks/ArchHooks.h"
 #include "global.h"
@@ -266,6 +267,7 @@ void GameLoop::UpdateAllButDraw() {
   NETWORK->Update();
   SCREENMAN->Update(fDeltaTime);
   MEMCARDMAN->Update();
+  SYNCMAN->Update();
 
   /* Important: Process input AFTER updating game logic, or input will be
    * acting on song beat from last frame */
