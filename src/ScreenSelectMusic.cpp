@@ -31,6 +31,7 @@
 #include "RageInput.h"
 #include "OptionsList.h"
 #include "RageFileManager.h"
+#include "SyncStartManager.h"
 
 #include <cmath>
 #include <vector>
@@ -63,8 +64,10 @@ static bool g_bCDTitleWaiting = false;
 static RString g_sBannerPath;
 static bool g_bBannerWaiting = false;
 static bool g_bSampleMusicWaiting = false;
+static bool g_bSyncStartSampleMusicWaiting = false;
 static RageTimer g_StartedLoadingAt(RageZeroTimer);
 static RageTimer g_ScreenStartedLoadingAt(RageZeroTimer);
+static RageTimer g_WaitForSyncStartSampleMusic(RageZeroTimer);
 RageTimer g_CanOpenOptionsList(RageZeroTimer);
 
 static LocalizedString PERMANENTLY_DELETE("ScreenSelectMusic", "PermanentlyDelete");
@@ -287,8 +290,15 @@ void ScreenSelectMusic::BeginScreen()
 	AfterMusicChange();
 
 	SOUND->PlayOnceFromAnnouncer( "select music intro" );
+	SYNCMAN->StopListeningScoreChanges();
+	SYNCMAN->ListenForSongChanges(true);
 
 	ScreenWithMenuElements::BeginScreen();
+}
+
+void ScreenSelectMusic::EndScreen()
+{
+	SYNCMAN->ListenForSongChanges(false);
 }
 
 ScreenSelectMusic::~ScreenSelectMusic()
@@ -363,11 +373,15 @@ void ScreenSelectMusic::CheckBackgroundRequests( bool bForce )
 	// Nothing else is going.  Start the music, if we haven't yet.
 	if( g_bSampleMusicWaiting )
 	{
-		if(g_ScreenStartedLoadingAt.Ago() < SAMPLE_MUSIC_DELAY_INIT)
+		if (!SYNCMAN->isEnabled() && g_ScreenStartedLoadingAt.Ago() < SAMPLE_MUSIC_DELAY_INIT)
 			return;
 
 		// Don't start the music sample when moving fast.
-		if( g_StartedLoadingAt.Ago() < SAMPLE_MUSIC_DELAY && !bForce )
+		if (!SYNCMAN->isEnabled() && g_StartedLoadingAt.Ago() < SAMPLE_MUSIC_DELAY && !bForce)
+			return;
+
+		// Don't start the preview when syncstart is enabled and not forcing
+		if (SYNCMAN->isEnabled() && (!g_bSyncStartSampleMusicWaiting || g_WaitForSyncStartSampleMusic.Ago() < 0.5))
 			return;
 
 		g_bSampleMusicWaiting = false;
@@ -404,6 +418,36 @@ void ScreenSelectMusic::Update( float fDeltaTime )
 
 	ScreenWithMenuElements::Update( fDeltaTime );
 
+	std::string songOrCoursePath = SYNCMAN->GetSongOrCourseToChangeTo();
+
+	if (!songOrCoursePath.empty()) {
+		LOG->Info("Received song/course '%s'", songOrCoursePath.c_str());
+		bool changed = false;
+
+		if (GAMESTATE->IsCourseMode()) {
+			Course* course = SONGMAN->FindCourse(songOrCoursePath);
+			if (course != nullptr) {
+				changed = m_MusicWheel.SelectCourse(course);
+			}
+		} else {
+			Song* song = SONGMAN->FindSong(songOrCoursePath);
+			if (song != nullptr) {
+				changed = m_MusicWheel.SelectSong(song);
+			}
+		}
+
+		if (changed) {
+			LOG->Info("Found received song/course from music wheel");
+			m_MusicWheel.Select();
+			m_MusicWheel.Move(-1);
+			m_MusicWheel.Move(1);
+			m_MusicWheel.Select();
+			AfterMusicChange();
+			g_bSyncStartSampleMusicWaiting = true;
+			g_WaitForSyncStartSampleMusic.Touch();
+		}
+	}
+
 	CheckBackgroundRequests( false );
 }
 
@@ -436,6 +480,30 @@ bool ScreenSelectMusic::Input( const InputEventPlus &input )
 		MESSAGEMAN->Broadcast( "DisplayLanguageChanged" );
 		m_MusicWheel.RebuildWheelItems();
 		return true;
+	}
+
+	// toggle sync manager
+	if (input.DeviceI.device == DEVICE_KEYBOARD && input.DeviceI.button == KEY_F10)
+	{
+		if (input.type != IET_FIRST_PRESS)
+			return false;
+
+		if (SYNCMAN->isEnabled())
+		{
+			SYNCMAN->disable();
+			LOG->Info("Synchronized start disabled");
+			SCREENMAN->SystemMessage("Synchronized start disabled");
+			g_bSampleMusicWaiting = true;
+			return true;
+		}
+		else
+		{
+			SYNCMAN->enable();
+			LOG->Info( "Synchronized start enabled" );
+			SCREENMAN->SystemMessage("Synchronized start enabled");
+			SOUND->StopMusic();
+			return true;
+		}
 	}
 
 	if( !IsTransitioning() && m_SelectionState != SelectionState_Finalized )
@@ -596,6 +664,34 @@ bool ScreenSelectMusic::Input( const InputEventPlus &input )
 
 	if( SELECT_MENU_AVAILABLE && input.MenuI == GAME_BUTTON_SELECT && input.type != IET_REPEAT )
 		UpdateSelectButton( input.pn, input.type == IET_FIRST_PRESS );
+
+	if (SYNCMAN->isEnabled() && m_bSelectIsDown[input.pn] && input.type == IET_FIRST_PRESS && input.MenuI == GAME_BUTTON_START)
+	{
+		if (GAMESTATE->IsCourseMode())
+		{
+			Course* selectedCourse = m_MusicWheel.GetSelectedCourse();
+
+			if (selectedCourse != nullptr)
+			{
+				SYNCMAN->broadcastSelectedCourse(*selectedCourse);
+			}
+		}
+		else
+		{
+			Song* selectedSong = m_MusicWheel.GetSelectedSong();
+
+			if (selectedSong != nullptr)
+			{
+				SYNCMAN->broadcastSelectedSong(*selectedSong);
+			}
+		}
+
+		// avoid theme using codes that is same than this key combination
+		for (auto gc = (GameController) 0; gc < NUM_GameController; enum_add<GameController>(gc, +1))
+		{
+			INPUTQUEUE->ClearQueue(gc);
+		}
+	}
 
 	if( SELECT_MENU_AVAILABLE  &&  m_bSelectIsDown[input.pn] )
 	{

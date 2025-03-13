@@ -34,6 +34,7 @@ public:
 	virtual ~ScreenSelectMusic();
 	virtual void Init();
 	virtual void BeginScreen();
+	virtual void EndScreen();
 
 	virtual void Update( float fDeltaTime );
 	virtual bool Input( const InputEventPlus &input );

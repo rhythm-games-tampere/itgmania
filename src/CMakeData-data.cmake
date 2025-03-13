@@ -221,6 +221,7 @@ list(APPEND SM_DATA_REST_SRC
             "ScreenDimensions.cpp"
             "SoundEffectControl.cpp"
             "StageStats.cpp"
+            "SyncStartScoreKeeper.cpp"
             "TimingData.cpp"
             "TimingSegments.cpp"
             "TitleSubstitution.cpp")
@@ -275,6 +276,7 @@ list(APPEND SM_DATA_REST_HPP
             "SoundEffectControl.h"
             "SubscriptionManager.h"
             "StageStats.h"
+            "SyncStartScoreKeeper.h"
             "ThemeMetric.h"
             "TimingData.h"
             "TimingSegments.h"
