@@ -12,6 +12,7 @@
 #include "RageTypes.h"
 #include "MessageManager.h"
 #include "ver.h"
+#include "lsqlite3.c"
 
 #include <cassert>
 #include <cmath>
@@ -262,11 +263,16 @@ LuaManager::LuaManager()
 	lua_atpanic( L, LuaPanic );
 	m_pLuaMain = L;
 
+	// Load a subset of Lua standard libraries.
+	// Notably, luaopen_package, luaopen_io and luaopen_os are not loaded.
 	lua_pushcfunction( L, luaopen_base ); lua_call( L, 0, 0 );
 	lua_pushcfunction( L, luaopen_math ); lua_call( L, 0, 0 );
 	lua_pushcfunction( L, luaopen_string ); lua_call( L, 0, 0 );
 	lua_pushcfunction( L, luaopen_table ); lua_call( L, 0, 0 );
 	lua_pushcfunction( L, luaopen_debug ); lua_call( L, 0, 0 );
+
+	// Load lsqlite3
+	lua_pushcfunction( L, luaopen_lsqlite3 ); lua_call( L, 0, 0 );
 
 	// Store the thread pool in a table on the stack, in the main thread.
 #define THREAD_POOL 1
@@ -1066,6 +1072,12 @@ namespace
 		LOG->Trace( "%s", sString.c_str() );
 		return 0;
 	}
+	static int Info( lua_State *L )
+	{
+		RString sString = SArg(1);
+		LOG->Info( "%s", sString.c_str() );
+		return 0;
+	}
 	static int Warn( lua_State *L )
 	{
 		RString sString = SArg(1);
@@ -1165,6 +1177,7 @@ namespace
 	const luaL_Reg luaTable[] =
 	{
 		LIST_METHOD( Trace ),
+		LIST_METHOD( Info ),
 		LIST_METHOD( Warn ),
 		LIST_METHOD( Flush ),
 		LIST_METHOD( CheckType ),
