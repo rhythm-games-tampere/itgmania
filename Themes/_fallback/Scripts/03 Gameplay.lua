@@ -379,7 +379,7 @@ local CodeDetectorCodes = {
 	-- modifiers section
 	CancelAll = {
 		default = "",
-		dance = "Left,Right,Left,Right,Left,Right,Left,Right",
+		dance = "",
 	},
 	--- specific modifiers
 	Mirror = {
@@ -460,7 +460,7 @@ local CodeDetectorCodes = {
 	-- cancel all in player options
 	CancelAllPlayerOptions = {
 		default = "",
-		dance = "Left,Right,Left,Right,Left,Right",
+		dance = "",
 	},
 };
 
