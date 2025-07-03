@@ -290,6 +290,9 @@ void GameLoop::UpdateAllButDraw(bool bRunningFromVBLANK) {
 
   // Update the lights
   LIGHTSMAN->Update(fDeltaTime);
+
+  // Process broadcast queue from other threads
+  MESSAGEMAN->HandleQueuedBroadcasts();
 }
 
 void GameLoop::RunGameLoop() {
