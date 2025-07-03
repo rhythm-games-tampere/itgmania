@@ -847,6 +847,7 @@ int sm_main(int argc, char* argv[]) {
 
   // Set up the messaging system early to have well defined code.
   MESSAGEMAN = new MessageManager;
+  MESSAGEMAN->m_mainThreadID = RageThread::GetCurrentThreadID();
 
   // Create game objects
   GAMESTATE = new GameState;

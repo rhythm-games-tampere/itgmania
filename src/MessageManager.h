@@ -1,10 +1,13 @@
 #ifndef MessageManager_H
 #define MessageManager_H
 
+#include <memory>
+#include <queue>
 #include <string>
 #include <vector>
 
 #include "LuaManager.h"
+#include "RageThreads.h"
 
 struct lua_State;
 class LuaTable;
@@ -209,8 +212,16 @@ class MessageManager {
   void SetLogging(bool set) { m_Logging = set; }
   bool m_Logging;
 
+  uint64_t m_mainThreadID = 0;
+  void QueueBroadcast(std::unique_ptr<Message> message);
+  void HandleQueuedBroadcasts();
+
   // Lua
   void PushSelf(lua_State* L);
+
+ private:
+  std::queue<std::unique_ptr<Message>> m_messagemanBroadcastQueue;
+  RageMutex m_messagemanBroadcastQueue_mutex;
 };
 
 extern MessageManager*
