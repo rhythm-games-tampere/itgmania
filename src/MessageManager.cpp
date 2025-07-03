@@ -5,6 +5,8 @@
 #include "EnumHelper.h"
 #include "LuaManager.h"
 #include "RageLog.h"
+#include "arch/Threads/Threads.h"
+#include "RageThreads.h"
 
 #include <set>
 #include <map>
@@ -154,7 +156,7 @@ void Message::SetParamFromStack( lua_State *L, const RString &sName )
 	m_pParams->Set( L, sName );
 }
 
-MessageManager::MessageManager()
+MessageManager::MessageManager() : m_messagemanBroadcastQueue_mutex("m_messagemanBroadcastQueue")
 {
 	m_Logging= false;
 	// Register with Lua.
@@ -203,6 +205,26 @@ void MessageManager::Unsubscribe( IMessageSubscriber* pSubscriber, const RString
 void MessageManager::Unsubscribe( IMessageSubscriber* pSubscriber, MessageID m )
 {
 	Unsubscribe( pSubscriber, MessageIDToString(m) );
+}
+
+/** @brief Queue Message to be ran on the main thread. */
+void MessageManager::QueueBroadcast(std::unique_ptr<Message> msg) {
+	m_messagemanBroadcastQueue_mutex.Lock();
+	m_messagemanBroadcastQueue.push(std::move(msg));
+	m_messagemanBroadcastQueue_mutex.Unlock();
+}
+
+/** @brief Check message queue for broadcasts. ONLY CALL FROM MAIN THREAD. */
+void MessageManager::HandleQueuedBroadcasts() {
+	if (!m_messagemanBroadcastQueue.empty()) {
+		m_messagemanBroadcastQueue_mutex.Lock();
+		if (!m_messagemanBroadcastQueue.empty()) {
+			std::unique_ptr<Message> message = std::move(m_messagemanBroadcastQueue.front());
+			m_messagemanBroadcastQueue.pop();
+			MESSAGEMAN->Broadcast(*message.get());
+		}
+		m_messagemanBroadcastQueue_mutex.Unlock();
+	}
 }
 
 void MessageManager::Broadcast( Message &msg ) const
@@ -289,6 +311,7 @@ void MessageSubscriber::UnsubscribeAll()
 
 // lua start
 #include "LuaBinding.h"
+#include "RageThreads.h"
 
 /** @brief Allow Lua to have access to the MessageManager. */ 
 class LunaMessageManager: public Luna<MessageManager>
@@ -303,8 +326,15 @@ public:
 		lua_pushvalue( L, 2 );
 		ParamTable.SetFromStack( L );
 
-		Message msg( SArg(1), ParamTable );
-		p->Broadcast( msg );
+		if (p->m_mainThreadID != RageThread::GetCurrentThreadID()) {
+			// Message constructor copies the string and LuaReference ParamTable, they're not left dangling
+			std::unique_ptr<Message> msg(new Message(SArg(1), ParamTable));
+			p->QueueBroadcast(std::move(msg));
+		} else {
+			Message msg( SArg(1), ParamTable );
+			p->Broadcast( msg );
+		}
+
 		COMMON_RETURN_SELF;
 	}
 	static int SetLogging(T* p, lua_State *L)
