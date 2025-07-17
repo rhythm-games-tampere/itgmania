@@ -10,6 +10,7 @@ list(APPEND SMDATA_GLOBAL_FILES_HPP
             "${SM_GENERATED_SRC_DIR}/config.hpp"
             "GameLoop.h"
             "global.h"
+            "PeriodicCaller.h"
             "ProductInfo.h" # TODO: Have this be auto-generated.
             "SpecialFiles.h"
             "StdString.h" # TODO: Remove the need for this file, transition to

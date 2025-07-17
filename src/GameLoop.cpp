@@ -1,4 +1,5 @@
 #include "global.h"
+#include "PeriodicCaller.h"
 #include "GameLoop.h"
 #include "RageLog.h"
 #include "RageTextureManager.h"
