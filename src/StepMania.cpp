@@ -47,6 +47,7 @@
 #include "MemoryCardManager.h"
 #include "ScreenManager.h"
 #include "LuaManager.h"
+#include "LuaDebugManager.h"
 #include "GameManager.h"
 #include "FontManager.h"
 #include "InputFilter.h"
@@ -327,6 +328,7 @@ void ShutdownGame()
 	RageUtil::SafeDelete( TEXTUREMAN );
 	RageUtil::SafeDelete( DISPLAY );
 	Dialog::Shutdown();
+	RageUtil::SafeDelete( LUADEBUG );
 	RageUtil::SafeDelete( LOG );
 	RageUtil::SafeDelete( FILEMAN );
 	RageUtil::SafeDelete( LUA );
@@ -900,6 +902,13 @@ int sm_main(int argc, char* argv[])
 #if defined(HAVE_TLS)
 	LOG->Info( "TLS is %savailable", RageThread::GetSupportsTLS()? "":"not " );
 #endif
+
+	RString luaDebugServerAddress;
+	if( GetCommandlineArgument("lua-debugger", &luaDebugServerAddress) )
+	{
+		LUADEBUG = new LuaDebugManager();
+		LUADEBUG->Start(luaDebugServerAddress, GetCommandlineArgument("lua-debugger-paused"));
+	}
 
 	GAMEMAN		= new GameManager;
 	THEME		= new ThemeManager;
