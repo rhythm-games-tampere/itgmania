@@ -24,7 +24,6 @@ extern "C"
 
 #include <vector>
 
-
 class LuaManager
 {
 public:

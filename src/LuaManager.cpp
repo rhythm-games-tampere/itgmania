@@ -1,6 +1,7 @@
 #include "global.h"
 #include "LuaManager.h"
 #include "LuaReference.h"
+#include "LuaDebugManager.h"
 #include "RageUtil.h"
 #include "RageLog.h"
 #include "RageFile.h"
@@ -314,11 +315,13 @@ Lua *LuaManager::Get()
 	}
 
 	pImpl->g_ActiveStates[pRet] = bLocked;
+	LuaDebugManager::ActivateState(pRet);
 	return pRet;
 }
 
 void LuaManager::Release( Lua *&p )
 {
+	LuaDebugManager::DeactivateState(p);
 	pImpl->g_FreeStateList.push_back( p );
 
 	ASSERT( lua_gettop(p) == 0 );
