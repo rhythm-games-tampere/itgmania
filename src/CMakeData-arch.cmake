@@ -327,6 +327,28 @@ source_group("Arch Specific\\\\Dialog"
              ${SMDATA_ARCH_DIALOG_SRC}
              ${SMDATA_ARCH_DIALOG_HPP})
 
+list(APPEND SMDATA_ARCH_SOCKET_SRC
+            "arch/Socket/Socket.cpp")
+list(APPEND SMDATA_ARCH_SOCKET_HPP
+            "arch/Socket/Socket.h")
+
+if(WIN32)
+  list(APPEND SMDATA_ARCH_SOCKET_SRC
+              "arch/Socket/Socket_Windows.h")
+  list(APPEND SMDATA_ARCH_SOCKET_HPP
+              "arch/Socket/Socket_Windows.cpp")
+else(WIN32)
+  list(APPEND SMDATA_ARCH_SOCKET_SRC
+              "arch/Socket/Socket_Posix.h")
+  list(APPEND SMDATA_ARCH_SOCKET_HPP
+              "arch/Socket/Socket_Posix.cpp")
+endif()
+
+source_group("Arch Specific\\\\Socket"
+             FILES
+             ${SMDATA_ARCH_SOCKET_SRC}
+             ${SMDATA_ARCH_SOCKET_HPP})
+
 list(APPEND SMDATA_ARCH_HOOKS_SRC "arch/ArchHooks/ArchHooks.cpp")
 list(APPEND SMDATA_ARCH_HOOKS_HPP "arch/ArchHooks/ArchHooks.h")
 
@@ -360,6 +382,7 @@ list(APPEND SMDATA_ALL_ARCH_SRC
             ${SMDATA_ARCH_LOWLEVEL_SRC}
             ${SMDATA_ARCH_MEMORY_SRC}
             ${SMDATA_ARCH_MOVIE_TEXTURE_SRC}
+            ${SMDATA_ARCH_SOCKET_SRC}
             ${SMDATA_ARCH_SOUND_SRC}
             ${SMDATA_ARCH_THREADS_SRC})
 list(APPEND SMDATA_ALL_ARCH_HPP
@@ -372,5 +395,6 @@ list(APPEND SMDATA_ALL_ARCH_HPP
             ${SMDATA_ARCH_LOWLEVEL_HPP}
             ${SMDATA_ARCH_MEMORY_HPP}
             ${SMDATA_ARCH_MOVIE_TEXTURE_HPP}
+            ${SMDATA_ARCH_SOCKET_HPP}
             ${SMDATA_ARCH_SOUND_HPP}
             ${SMDATA_ARCH_THREADS_HPP})
