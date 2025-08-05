@@ -1,0 +1,81 @@
+#ifndef SOCKET_H
+#define SOCKET_H
+
+class ClientSocket
+{
+public:
+	virtual ~ClientSocket() {}
+
+	/** Try to read data from the socket.
+	 * @param buffer output buffer
+	 * @param length Maximum number of bytes to read. Must not be larger that the size of the buffer.
+	 * @param timeoutMilliseconds maximum time to wait for the data, or -1 to wait indefinitely
+	 * @return number of bytes read, or -1 on error
+	 */
+	virtual int Receive(char *buffer, int length, int timeoutMilliseconds = -1) = 0;
+
+	/** Try to read data from the socket repeatedly until the whole buffer is filled.
+	 * @param buffer input buffer
+	 * @param length length of the data
+	 * @return number of bytes written, or a negative number on error
+	 */
+	virtual int ReceiveAll(char *buffer, int length);
+
+	/** Try to write data to the socket.
+	 * @param buffer input buffer
+	 * @param length length of the data
+	 * @return number of bytes written, or a negative number on error
+	 */
+	virtual int Send(const char *buffer, int length) = 0;
+
+	/** Try to write data to the socket repeatedly until all data is written.
+	 * @param buffer input buffer
+	 * @param length length of the data
+	 * @return number of bytes written, or a negative number on error
+	 */
+	virtual int SendAll(const char *buffer, int length);
+
+protected:
+	ClientSocket() {}
+};
+
+class ServerSocket
+{
+public:
+	virtual ~ServerSocket() {}
+
+	/** Open a socket and listen for connections. Caller must free the returned ServerSocket.
+	 * Listen is provided by the arch-specific implementations.
+	 * @param address address to listen on
+	 * @return the server socket, or nullptr on error
+	 */
+	static ServerSocket* Listen(const char* address);
+
+	/** Accept a connection to the socket. Caller must free the returned ClientSocket.
+	 * @param timeoutMilliseconds maximum time to wait for the connection, or -1 to wait indefinitely
+	 * @return connected client socket, or nullptr if the timeout was reached
+	 */
+	virtual ClientSocket* Accept(int timeoutMilliseconds = -1) = 0;
+
+protected:
+	ServerSocket() {}
+};
+
+#endif
+
+/*
+ * Copyright (C) 2025  Arttu Ylä-Outinen
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
