@@ -57,6 +57,7 @@ AutoScreenMessage( SM_SortOrderChanging );
 AutoScreenMessage( SM_SortOrderChanged );
 AutoScreenMessage( SM_BackFromPlayerOptions );
 AutoScreenMessage( SM_ConfirmDeleteSong );
+AutoScreenMessage( SM_ConfirmExit );
 
 static RString g_sCDTitlePath;
 static bool g_bWantFallbackCdTitle;
@@ -71,6 +72,7 @@ static RageTimer g_WaitForSyncStartSampleMusic(RageZeroTimer);
 RageTimer g_CanOpenOptionsList(RageZeroTimer);
 
 static LocalizedString PERMANENTLY_DELETE("ScreenSelectMusic", "PermanentlyDelete");
+static LocalizedString PROMPT_BEFORE_EXITING("ScreenSelectMusic", "PromptBeforeExiting");
 
 REGISTER_SCREEN_CLASS( ScreenSelectMusic );
 void ScreenSelectMusic::Init()
@@ -112,6 +114,7 @@ void ScreenSelectMusic::Init()
 	// To allow changing steps with gamebuttons -DaisuMaster
 	CHANGE_STEPS_WITH_GAME_BUTTONS.Load( m_sName, "ChangeStepsWithGameButtons" );
 	CHANGE_GROUPS_WITH_GAME_BUTTONS.Load( m_sName, "ChangeGroupsWithGameButtons" );
+	CONFIRM_EXIT.Load( m_sName, "ConfirmExit" );
 
 	m_GameButtonPreviousSong = INPUTMAPPER->GetInputScheme()->ButtonNameToIndex( THEME->GetMetric(m_sName,"PreviousSongButton") );
 	m_GameButtonNextSong = INPUTMAPPER->GetInputScheme()->ButtonNameToIndex( THEME->GetMetric(m_sName,"NextSongButton") );
@@ -1321,6 +1324,11 @@ void ScreenSelectMusic::HandleScreenMessage( const ScreenMessage SM )
 			m_MusicWheel.ChangeMusic(0);
 		}
 	}
+	else if( SM == SM_ConfirmExit )
+	{
+		if( ScreenPrompt::s_LastAnswer == ANSWER_YES )
+			ConfirmedCancel( SM_GoToPrevScreen );
+	}
 
 	ScreenWithMenuElements::HandleScreenMessage( SM );
 }
@@ -1658,10 +1666,25 @@ bool ScreenSelectMusic::MenuBack( const InputEventPlus & /* input */ )
 	}
 	*/
 
-	m_BackgroundLoader.Abort();
-
 	Cancel( SM_GoToPrevScreen );
 	return true;
+}
+
+void ScreenSelectMusic::Cancel(ScreenMessage smSendWhenDone)
+{
+	if( CONFIRM_EXIT )
+	{
+        m_MusicWheel.Move( 0 );
+		ScreenPrompt::Prompt( SM_ConfirmExit, PROMPT_BEFORE_EXITING.GetValue().c_str(), PROMPT_YES_NO );
+	}
+	else
+		ConfirmedCancel( smSendWhenDone );
+}
+
+void ScreenSelectMusic::ConfirmedCancel(ScreenMessage smSendWhenDone)
+{
+	m_BackgroundLoader.Abort();
+	ScreenWithMenuElements::Cancel( smSendWhenDone );
 }
 
 void ScreenSelectMusic::AfterStepsOrTrailChange( const std::vector<PlayerNumber> &vpns )
