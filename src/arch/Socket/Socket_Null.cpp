@@ -5,6 +5,11 @@ ServerSocket* ServerSocket::Listen(const char* address)
 	return nullptr;
 }
 
+BroadcastSocket* BroadcastSocket::Listen(const char* address)
+{
+	return nullptr;
+}
+
 /*
  * Copyright (C) 2025  Arttu Ylä-Outinen
  *
