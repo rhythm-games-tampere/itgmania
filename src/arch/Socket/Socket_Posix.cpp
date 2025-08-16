@@ -2,12 +2,13 @@
 
 #include <netdb.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-
 #include <errno.h>
+
 #include <string>
 #include <string_view>
 
@@ -98,14 +99,14 @@ public:
 		return new PosixTcpClientSocket(clientSocket);
 	}
 
-	static PosixTcpServerSocket* Listen(const char *address)
+	static PosixTcpServerSocket* Listen(std::string_view host, std::string_view port)
 	{
 		int listenSocket = -1;
 		struct addrinfo *addressInfo = nullptr;
 		int errorCode = 0;
 		const char *operation = "";
-		std::string_view addressView(address);
-		size_t colonIndex = addressView.rfind(":");
+		std::string hostString(host);
+		std::string portString(port);
 
 		struct addrinfo hints = {};
 		hints.ai_family = AF_INET;
@@ -114,18 +115,7 @@ public:
 		hints.ai_flags = AI_PASSIVE;
 
 		operation = "getaddrinfo";
-		// Try to split host and port.
-		if( colonIndex == std::string_view::npos )
-		{
-			errorCode = getaddrinfo(address, nullptr, &hints, &addressInfo);
-			if( errorCode != 0 ) goto error;
-		}
-		else
-		{
-			std::string host(addressView.substr(0, colonIndex));
-			std::string port(addressView.substr(colonIndex + 1));
-			errorCode = getaddrinfo(host.c_str(), port.c_str(), &hints, &addressInfo);
-		}
+		errorCode = getaddrinfo(hostString.c_str(), portString.c_str(), &hints, &addressInfo);
 		if( errorCode != 0 ) goto error;
 
 		operation = "socket";
@@ -158,9 +148,135 @@ private:
 	int m_socket = -1;
 };
 
+class PosixUdpBroadcastSocket : public BroadcastSocket
+{
+public:
+	PosixUdpBroadcastSocket(int socket, uint16_t port):
+		m_socket(socket),
+		m_sendAddress{}
+	{
+		m_sendAddress.sin_family = AF_INET;
+		m_sendAddress.sin_port = htons(port);
+		m_sendAddress.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+	}
+
+	~PosixUdpBroadcastSocket()
+	{
+		shutdown(m_socket, SHUT_RDWR);
+		close(m_socket);
+		m_socket = -1;
+	}
+
+	int Receive(char *buffer, int length, std::string &clientAddress, int timeoutMilliseconds = -1)
+	{
+		clientAddress.clear();
+
+		if( timeoutMilliseconds >= 0 )
+		{
+			int selectResult = SelectForRead(m_socket, timeoutMilliseconds);
+			if( selectResult <= 0 ) return selectResult;
+		}
+
+		struct sockaddr_in receiveAddress{};
+		socklen_t addressLength = sizeof(receiveAddress);
+		int recvResult = recvfrom(m_socket, buffer, length, 0, (struct sockaddr*)&receiveAddress, &addressLength);
+		if( recvResult < 0 ) LogSocketError("recvfrom");
+		if( recvResult < 0 ) return -1;
+
+		clientAddress.append(inet_ntoa(receiveAddress.sin_addr));
+		clientAddress.append(":");
+		clientAddress.append(std::to_string(ntohs(receiveAddress.sin_port)));
+
+		return recvResult;
+	}
+
+	int Broadcast(const char *buffer, int length)
+	{
+		int sendResult = sendto(
+			m_socket, buffer, length, 0,
+			(const struct sockaddr*)&m_sendAddress, sizeof(m_sendAddress));
+		if( sendResult < 0 ) LogSocketError("sendto");
+		return sendResult;
+	}
+
+	static PosixUdpBroadcastSocket* Listen(std::string_view host, std::string_view port)
+	{
+		int listenSocket = -1;
+		struct addrinfo *addressInfo = nullptr;
+		int errorCode = 0;
+		const char *operation = "";
+		std::string hostString(host);
+		std::string portString(port);
+		uint16_t portNumber = atoi(portString.c_str());
+		int yes = 1;
+
+		struct addrinfo hints = {};
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_DGRAM;
+		hints.ai_protocol = IPPROTO_UDP;
+		hints.ai_flags = AI_PASSIVE;
+
+		operation = "getaddrinfo";
+		errorCode = getaddrinfo(hostString.c_str(), portString.c_str(), &hints, &addressInfo);
+		if( errorCode != 0 ) goto error;
+
+		operation = "socket";
+		listenSocket = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol);
+		if( listenSocket < 0 ) goto error;
+
+		operation = "setsockopt";
+		if( setsockopt(listenSocket, SOL_SOCKET, SO_BROADCAST, (void*)&yes, sizeof(yes)) != 0 ) goto error;
+		if( setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (void*)&yes, sizeof(yes)) != 0 ) goto error;
+		if( setsockopt(listenSocket, SOL_SOCKET, SO_REUSEPORT, (void*)&yes, sizeof(yes)) != 0 ) goto error;
+
+		operation = "bind";
+		if( bind(listenSocket, addressInfo->ai_addr, (socklen_t)addressInfo->ai_addrlen) != 0 ) goto error;
+
+		freeaddrinfo(addressInfo);
+		addressInfo = nullptr;
+
+		return new PosixUdpBroadcastSocket(listenSocket, portNumber);
+
+	error:
+		LogSocketError(operation, errorCode);
+		if( listenSocket != -1 )
+		{
+			shutdown(listenSocket, SHUT_RDWR);
+			close(listenSocket);
+		}
+		if( addressInfo != nullptr ) freeaddrinfo(addressInfo);
+		return nullptr;
+	}
+
+private:
+	int m_socket;
+	struct sockaddr_in m_sendAddress;
+};
+
+namespace
+{
+	std::pair<std::string_view, std::string_view> SplitToHostAndPort(std::string_view address)
+	{
+		size_t colonIndex = address.rfind(':');
+		if( colonIndex == std::string_view::npos )
+			return std::make_pair(address, std::string_view{});
+
+		std::string_view host(address.substr(0, colonIndex));
+		std::string_view port(address.substr(colonIndex + 1));
+		return std::make_pair(host, port);
+	}
+}
+
 ServerSocket* ServerSocket::Listen(const char* address)
 {
-	return PosixTcpServerSocket::Listen(address);
+	auto hostAndPort = SplitToHostAndPort(address);
+	return PosixTcpServerSocket::Listen(hostAndPort.first, hostAndPort.second);
+}
+
+BroadcastSocket* BroadcastSocket::Listen(const char* address)
+{
+	auto hostAndPort = SplitToHostAndPort(address);
+	return PosixUdpBroadcastSocket::Listen(hostAndPort.first, hostAndPort.second);
 }
 
 /*
