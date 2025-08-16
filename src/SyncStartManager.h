@@ -1,9 +1,10 @@
 #ifndef SRC_SYNCSTARTMANAGER_H_
 #define SRC_SYNCSTARTMANAGER_H_
 
+#include <memory>
 #include <string>
-#include <arpa/inet.h>
 
+#include "arch/Socket/Socket.h"
 #include "PlayerNumber.h"
 #include "PlayerStageStats.h"
 #include "SyncStartScoreKeeper.h"
@@ -13,10 +14,10 @@
 class SyncStartManager
 {
 private:
-	int socketfd;
+	std::unique_ptr<BroadcastSocket> socket;
 	bool enabled;
 	void broadcast(char code, const std::string& msg);
-	int getNextMessage(char* buffer, sockaddr_in* remaddr, size_t bufferSize);
+	int getNextMessage(char* buffer, std::string& remaddr, size_t bufferSize);
 
 	bool waitingForSongChanges;
 	std::string songOrCourseWaitingToBeChangedTo;
@@ -41,7 +42,7 @@ public:
 	[[nodiscard]] std::stringstream writeScoreMessage(const PlayerStageStats& pPlayerStageStats, bool isCourseScore, int whiteCount, int currentDp, int possibleDp) const;
     void broadcastMarathonSongLoading();
     void broadcastMarathonSongReady();
-	void receiveScoreChange(struct in_addr in_addr, const std::string& msg);
+	void receiveScoreChange(const std::string& addr, const std::string& msg);
 	std::vector<SyncStartScore> GetCurrentPlayerScores();
 	std::vector<SyncStartScore> GetLatestPlayerScores();
 	void Update();
