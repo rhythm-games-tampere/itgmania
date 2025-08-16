@@ -1,7 +1,4 @@
 #include <iostream>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/socket.h>
 #include <cstring>
 #include <cstdlib>
 #include <string>
@@ -92,7 +89,7 @@ SyncStartManager::SyncStartManager()
 		LUA->Release( L );
 	}
 
-	this->socketfd = -1;
+	this->socket = {};
 	this->enabled = false;
     this->machinesLoadingNextSongCounter = 0;
 }
@@ -110,39 +107,13 @@ bool SyncStartManager::isEnabled() const
 void SyncStartManager::enable()
 {
 	// initialize
-	this->socketfd = socket(AF_INET, SOCK_DGRAM, 0);
-
-	struct sockaddr_in addr;
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(PORT);
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	// we need to be able to broadcast through this socket
-	int enableOpt = 1;
-	if (
-		setsockopt(this->socketfd, SOL_SOCKET, SO_BROADCAST, &enableOpt, sizeof(enableOpt)) == -1 ||
-		setsockopt(this->socketfd, SOL_SOCKET, SO_REUSEADDR, &enableOpt, sizeof(enableOpt)) == -1 ||
-		setsockopt(this->socketfd, SOL_SOCKET, SO_REUSEPORT, &enableOpt, sizeof(enableOpt)) == -1
-	) {
-		return;
-	}
-
-	if (bind(this->socketfd, (const struct sockaddr *)&addr, (socklen_t)sizeof(addr)) < 0) {
-		return;
-	}
-
-	this->enabled = true;
+	RString listenAddress = ssprintf("0.0.0.0:%d", PORT);
+	this->socket.reset(BroadcastSocket::Listen(listenAddress));
+	if( this->socket ) this->enabled = true;
 }
 
 void SyncStartManager::broadcast(char code, const std::string& msg) {
-	if (!this->enabled) {
-		return;
-	}
-
-	struct sockaddr_in addr;
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(PORT);
-	addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+	if (!this->enabled) return;
 
 	// first byte is code, rest is the message
 	char buffer[BUFSIZE];
@@ -153,9 +124,7 @@ void SyncStartManager::broadcast(char code, const std::string& msg) {
 		LOG->Info("BROADCASTING: code %d, msg: '%s'", code, msg.c_str());
 	#endif
 
-	if (sendto(this->socketfd, &buffer, length + 1, 0, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
-		return;
-	}
+	this->socket->Broadcast(buffer, length + 1);
 }
 
 void SyncStartManager::broadcastStarting()
@@ -257,14 +226,13 @@ void SyncStartManager::broadcastMarathonSongReady() {
     this->broadcast(MARATHON_SONG_READY, "");
 }
 
-void SyncStartManager::receiveScoreChange(struct in_addr in_addr, const std::string& msg) {
+void SyncStartManager::receiveScoreChange(const std::string& addr, const std::string& msg) {
 	if (this->activeSyncStartSong.empty()) {
 		return;
 	}
 
-	ScorePlayer scorePlayer = {
-		.machineAddress = in_addr
-	};
+	ScorePlayer scorePlayer = {};
+	scorePlayer.machineAddress = addr;
 
 	ScoreData scoreData;
 
@@ -313,18 +281,12 @@ void SyncStartManager::receiveScoreChange(struct in_addr in_addr, const std::str
 
 void SyncStartManager::disable()
 {
-	if (this->socketfd > 0)
-	{
-		shutdown(this->socketfd, SHUT_RDWR);
-		close(this->socketfd);
-	}
-
+	this->socket.reset();
 	this->enabled = false;
 }
 
-int SyncStartManager::getNextMessage(char* buffer, sockaddr_in* remaddr, size_t bufferSize) {
-	socklen_t addrlen = sizeof remaddr;
-	return recvfrom(this->socketfd, buffer, bufferSize, MSG_DONTWAIT, (struct sockaddr *) remaddr, &addrlen);
+int SyncStartManager::getNextMessage(char* buffer, std::string& remaddr, size_t bufferSize) {
+	return this->socket->Receive(buffer, bufferSize, remaddr, 0);
 }
 
 void SyncStartManager::Update() {
@@ -334,11 +296,11 @@ void SyncStartManager::Update() {
 
 	char buffer[BUFSIZE];
 	int received;
-	struct sockaddr_in remaddr;
+	std::string remaddr;
 
 	// loop through packets received
 	do {
-		received = getNextMessage(buffer, &remaddr, sizeof(buffer));
+		received = getNextMessage(buffer, remaddr, sizeof(buffer));
 		if (received > 0) {
 			char opcode = buffer[0];
 			std::string msg = std::string(buffer + 1, received - 1);
@@ -350,7 +312,7 @@ void SyncStartManager::Update() {
 					this->shouldStart = true;
 				}
 			} else if (opcode == SCORE) {
-				this->receiveScoreChange(remaddr.sin_addr, msg);
+				this->receiveScoreChange(remaddr, msg);
             } else if (opcode == MARATHON_SONG_LOADING) {
                 this->machinesLoadingNextSongCounter++;
                 LOG->Info("MARATHON_SONG_LOADING, counter=%d", this->machinesLoadingNextSongCounter);

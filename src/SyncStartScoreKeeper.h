@@ -2,14 +2,13 @@
 #define SRC_SYNCSTARTSCOREKEEPER_H
 
 #include <string>
-#include <arpa/inet.h>
 
 #include "PlayerNumber.h"
 #include "PlayerStageStats.h"
 
 
 struct ScorePlayer {
-	struct in_addr machineAddress;
+	std::string machineAddress;
 	PlayerNumber playerNumber;
 	std::string playerName;
 };
