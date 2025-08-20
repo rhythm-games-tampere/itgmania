@@ -227,7 +227,11 @@ void ScreenSelect::HandleScreenMessage( const ScreenMessage SM )
 
 		SCREENMAN->RefreshCreditsMessages();
 
-		ASSERT( !IsTransitioning() );
+		if( IsTransitioning() )
+		{
+			// This can happen when pressing Back and Start quickly.
+			LOG->Warn("Still transitioning when playing SM_GoToNextScreen");
+		}
 		StartTransitioningScreen( SM_GoToNextScreen );
 	}
 
