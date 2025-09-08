@@ -448,6 +448,8 @@ void GraphicsWindow::DestroyGraphicsWindow()
 		g_HDC = nullptr;
 	}
 
+	CHECKPOINT;
+
 	if( g_hWndMain != nullptr )
 	{
 		DestroyWindow( g_hWndMain );
@@ -455,11 +457,15 @@ void GraphicsWindow::DestroyGraphicsWindow()
 		CrashHandler::SetForegroundWindow( g_hWndMain );
 	}
 
+	CHECKPOINT;
+
 	if( g_hIcon != nullptr )
 	{
 		DestroyIcon( g_hIcon );
 		g_hIcon = nullptr;
 	}
+
+	CHECKPOINT;
 
 	MSG msg;
 	while( PeekMessage( &msg, nullptr, 0, 0, PM_NOREMOVE ) )
@@ -469,6 +475,8 @@ void GraphicsWindow::DestroyGraphicsWindow()
 		CHECKPOINT;
 		DispatchMessage( &msg );
 	}
+
+	CHECKPOINT;
 }
 
 void GraphicsWindow::Initialize( bool bD3D )
