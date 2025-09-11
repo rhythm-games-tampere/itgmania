@@ -371,13 +371,20 @@ void RageSound::SoundIsFinishedPlaying()
 	if( !m_bPlaying )
 		return;
 
-	/* Get our current hardware position. */
+	// Get current hardware position to update stopped source frame when sound finishes playing.
 	int64_t iCurrentHardwareFrame = SOUNDMAN->GetPosition(nullptr);
     
+	// Make the decision to delete while inside the lock.
+	// Do the actual deletion after releasing the mutex.
 	bool bDeleteThis = false;
 	{
+		// Global sound mutex
 		LockMut(m_Mutex);
         
+		// Update the stopped source frame using the current hardware frame,
+		// but only if the hardware-to-stream and stream-to-source maps are not empty.
+		// This branch handles normal cleanup when the sound is not scheduled for deletion.
+		// If the maps are empty, we leave m_iStoppedSourceFrame untouched.
 		if( m_bDeleteWhenFinished )
 		{
 			m_bDeleteWhenFinished = false;
@@ -387,6 +394,7 @@ void RageSound::SoundIsFinishedPlaying()
 		{
 			if( !m_HardwareToStreamMap.IsEmpty() && !m_StreamToSourceMap.IsEmpty() )
 			{
+				// Update stopped position only if maps are available; otherwise, preserve existing value.
 				m_iStoppedSourceFrame = static_cast<int>(GetSourceFrameFromHardwareFrame(iCurrentHardwareFrame));
 			}
 
@@ -401,10 +409,6 @@ void RageSound::SoundIsFinishedPlaying()
 		delete this;
 		return;
 	}
-	// Update the stopped source frame using the current hardware frame,
-	// but only if the hardware-to-stream and stream-to-source maps are not empty
-//	LOG->Trace("set playing false for %p (SoundIsFinishedPlaying) (%s)", this, this->GetLoadedFilePath().c_str());
-//	LOG->Trace("SoundIsFinishedPlaying %p finished (%s)", this, this->GetLoadedFilePath().c_str());
 }
 
 void RageSound::Play(bool is_action, const RageSoundParams *pParams)
