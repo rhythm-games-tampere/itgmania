@@ -826,10 +826,19 @@ RString RageDisplay_Legacy::TryVideoMode( const VideoModeParams &p, bool &bNewDe
 	return RString();	// successfully set mode
 }
 
+// https://stackoverflow.com/q/6594214
+// Since glGetIntegerv won't initialize the variable if it fails, account for failure.
 int RageDisplay_Legacy::GetMaxTextureSize() const
 {
 	GLint size;
 	glGetIntegerv( GL_MAX_TEXTURE_SIZE, &size );
+
+	if (size <= 0)
+	{
+		LOG->Warn("OpenGL: glGetIntegerv failed when retrieving GL_MAX_TEXTURE_SIZE. Returning fallback value.");
+		return 2048; // fallback
+	}
+	
 	return size;
 }
 
