@@ -143,7 +143,7 @@ void SetMusicLength(SongTagInfo& info) {
   }
 }
 void SetLastSecondHint(SongTagInfo& info) {
-  info.song->SetSpecifiedLastSecond(StringToFloat((*info.params)[1]));
+  info.song->SetSpecifiedLastSecondNoOffset(StringToFloat((*info.params)[1]));
 }
 void SetSampleStart(SongTagInfo& info) {
   info.song->m_fMusicSampleStartSeconds = HHMMSSToSeconds((*info.params)[1]);
@@ -258,12 +258,12 @@ void SetSongFakes(SongTagInfo& info) {
 }
 void SetFirstSecond(SongTagInfo& info) {
   if (info.from_cache) {
-    info.song->SetFirstSecond(StringToFloat((*info.params)[1]));
+    info.song->SetFirstSecondNoOffset(StringToFloat((*info.params)[1]));
   }
 }
 void SetLastSecond(SongTagInfo& info) {
   if (info.from_cache) {
-    info.song->SetLastSecond(StringToFloat((*info.params)[1]));
+    info.song->SetLastSecondNoOffset(StringToFloat((*info.params)[1]));
   }
 }
 void SetSongFilename(SongTagInfo& info) {

@@ -310,7 +310,8 @@ static bool LoadFromKSFFile(
       //	song.SetSpecifiedLastSecond(curTime);
       // }
 
-      song.SetSpecifiedLastSecond(song.GetSpecifiedLastSecond() + 4);
+      song.SetSpecifiedLastSecondNoOffset(
+          song.GetSpecifiedLastSecondNoOffset() + 4);
 
       break;
     }

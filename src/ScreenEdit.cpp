@@ -5034,7 +5034,7 @@ static void ChangeArtistTranslit(const std::string& sNew) {
 
 static void ChangeLastSecondHint(const std::string& sNew) {
   Song& s = *GAMESTATE->m_pCurSong;
-  s.SetSpecifiedLastSecond(StringToFloat(sNew));
+  s.SetSpecifiedLastSecondNoOffset(StringToFloat(sNew));
 }
 
 static void ChangePreviewStart(const std::string& sNew) {
@@ -6088,7 +6088,8 @@ void ScreenEdit::HandleAreaMenuChoice(
     case last_second_at_beat: {
       const TimingData& timing = GetAppropriateTiming();
       Song& s = *GAMESTATE->m_pCurSong;
-      s.SetSpecifiedLastSecond(timing.GetElapsedTimeFromBeat(GetBeat()));
+      s.SetSpecifiedLastSecondNoOffset(
+          timing.GetElapsedTimeFromBeatNoOffset(GetBeat()));
       break;
     }
     case undo:
