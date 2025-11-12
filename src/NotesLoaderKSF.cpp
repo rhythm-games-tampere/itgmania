@@ -319,7 +319,7 @@ static bool LoadFromKSFFile( const RString &sPath, Steps &out, Song &song, bool 
 			//	song.SetSpecifiedLastSecond(curTime);
 			//}
 
-			song.SetSpecifiedLastSecond( song.GetSpecifiedLastSecond() + 4 );
+			song.SetSpecifiedLastSecondNoOffset( song.GetSpecifiedLastSecondNoOffset() + 4 );
 
 			break;
 		}

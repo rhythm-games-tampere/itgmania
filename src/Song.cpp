@@ -47,6 +47,7 @@
 
 //-Nick12 Used for song file hashing
 #include <CryptManager.h>
+#include "GameState.h"
 
 /**
  * @brief The internal version of the cache for StepMania.
@@ -80,9 +81,9 @@ Song::Song()
 	m_fMusicSampleStartSeconds = -1;
 	m_fMusicSampleLengthSeconds = DEFAULT_MUSIC_SAMPLE_LENGTH;
 	m_fMusicLengthSeconds = 0;
-	firstSecond = -1;
-	lastSecond = -1;
-	specifiedLastSecond = -1;
+	firstSecondNoOffset = -1;
+	lastSecondNoOffset = -1;
+	specifiedLastSecondNoOffset = -1;
 	m_SelectionDisplay = SHOW_ALWAYS;
 	m_bEnabled = true;
 	m_DisplayBPMType = DISPLAY_BPM_ACTUAL;
@@ -123,47 +124,65 @@ void Song::DetachSteps()
 
 float Song::GetFirstSecond() const
 {
-	return this->firstSecond;
+	return GetFirstSecondNoOffset() -
+		GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate * PREFSMAN->m_fGlobalOffsetSeconds;
 }
 
 float Song::GetFirstBeat() const
 {
-	return this->m_SongTiming.GetBeatFromElapsedTime(this->firstSecond);
+	return this->m_SongTiming.GetBeatFromElapsedTimeNoOffset(this->firstSecondNoOffset);
 }
 
 float Song::GetLastSecond() const
 {
-	return this->lastSecond;
+	return GetLastSecondNoOffset() -
+		GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate * PREFSMAN->m_fGlobalOffsetSeconds;
 }
 
 float Song::GetLastBeat() const
 {
-	return this->m_SongTiming.GetBeatFromElapsedTime(this->lastSecond);
+	return this->m_SongTiming.GetBeatFromElapsedTimeNoOffset(this->lastSecondNoOffset);
 }
 
 float Song::GetSpecifiedLastSecond() const
 {
-	return this->specifiedLastSecond;
+	return this->specifiedLastSecondNoOffset -
+		GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate * PREFSMAN->m_fGlobalOffsetSeconds;
 }
 
 float Song::GetSpecifiedLastBeat() const
 {
-	return this->m_SongTiming.GetBeatFromElapsedTime(this->specifiedLastSecond);
+	return this->m_SongTiming.GetBeatFromElapsedTimeNoOffset(this->specifiedLastSecondNoOffset);
 }
 
-void Song::SetFirstSecond(const float f)
+float Song::GetFirstSecondNoOffset() const
 {
-	this->firstSecond = f;
+	return this->firstSecondNoOffset;
 }
 
-void Song::SetLastSecond(const float f)
+float Song::GetLastSecondNoOffset() const
 {
-	this->lastSecond = f;
+	return this->lastSecondNoOffset;
 }
 
-void Song::SetSpecifiedLastSecond(const float f)
+float Song::GetSpecifiedLastSecondNoOffset() const
 {
-	this->specifiedLastSecond = f;
+	return this->specifiedLastSecondNoOffset;
+}
+
+void Song::SetFirstSecondNoOffset(const float f)
+{
+	this->firstSecondNoOffset = f;
+}
+
+void Song::SetLastSecondNoOffset(const float f)
+{
+	this->lastSecondNoOffset = f;
+}
+
+void Song::SetSpecifiedLastSecondNoOffset(const float f)
+{
+	this->specifiedLastSecondNoOffset = f;
 }
 
 // Reset to an empty song.
@@ -1159,9 +1178,9 @@ void Song::TidyUpData( bool from_cache, bool /* duringCache */ )
 	ReCalculateStepStatsAndLastSecond(from_cache, true);
 	// If the music length is suspiciously shorter than the last second, adjust
 	// the length.  This prevents the ogg patch from setting a false length. -Kyz
-	if(m_fMusicLengthSeconds < lastSecond - 10.0f)
+	if(m_fMusicLengthSeconds < lastSecondNoOffset - 10.0f)
 	{
-		m_fMusicLengthSeconds= lastSecond;
+		m_fMusicLengthSeconds = lastSecondNoOffset;
 	}
 }
 
@@ -1191,7 +1210,7 @@ void Song::ReCalculateStepStatsAndLastSecond(bool fromCache, bool duringCache)
 
 	float localFirst = FLT_MAX; // inf
 	// Make sure we're at least as long as the specified amount below.
-	float localLast = this->specifiedLastSecond;
+	float localLast = this->specifiedLastSecondNoOffset;
 
 	for( unsigned i=0; i<m_vpSteps.size(); i++ )
 	{
@@ -1221,9 +1240,9 @@ void Song::ReCalculateStepStatsAndLastSecond(bool fromCache, bool duringCache)
 			if( tempNoteData.GetLastRow() != 0 )
 			{
 				localFirst = std::min(localFirst,
-					pSteps->GetTimingData()->GetElapsedTimeFromBeat(tempNoteData.GetFirstBeat()));
+					pSteps->GetTimingData()->GetElapsedTimeFromBeatNoOffset(tempNoteData.GetFirstBeat()));
 				localLast = std::max(localLast,
-					pSteps->GetTimingData()->GetElapsedTimeFromBeat(tempNoteData.GetLastBeat()));
+					pSteps->GetTimingData()->GetElapsedTimeFromBeatNoOffset(tempNoteData.GetLastBeat()));
 			}
 		}
 
@@ -1237,8 +1256,8 @@ void Song::ReCalculateStepStatsAndLastSecond(bool fromCache, bool duringCache)
 	}
 
 	// Yes, for some reason we can have freaky stuff take place here.
-	this->firstSecond = (localFirst < localLast) ? localFirst : 0;
-	this->lastSecond = localLast;
+	this->firstSecondNoOffset = (localFirst < localLast) ? localFirst : 0;
+	this->lastSecondNoOffset = localLast;
 }
 
 // Return whether the song is playable in the given style.
