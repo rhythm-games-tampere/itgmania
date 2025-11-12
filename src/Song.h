@@ -321,19 +321,23 @@ class Song {
   float GetSpecifiedLastBeat() const;
   float GetSpecifiedLastSecond() const;
 
-  void SetFirstSecond(const float f);
-  void SetLastSecond(const float f);
-  void SetSpecifiedLastSecond(const float f);
+  float GetFirstSecondNoOffset() const;
+  float GetLastSecondNoOffset() const;
+  float GetSpecifiedLastSecondNoOffset() const;
+
+  void SetFirstSecondNoOffset(const float f);
+  void SetLastSecondNoOffset(const float f);
+  void SetSpecifiedLastSecondNoOffset(const float f);
 
   typedef std::vector<BackgroundChange> VBackgroundChange;
 
  private:
   /** @brief The first second that a note is hit. */
-  float firstSecond;
+  float firstSecondNoOffset;
   /** @brief The last second that a note is hit. */
-  float lastSecond;
+  float lastSecondNoOffset;
   /** @brief The last second of the song for playing purposes. */
-  float specifiedLastSecond;
+  float specifiedLastSecondNoOffset;
   /**
    * @brief The background changes (sorted by layer) that are for this Song.
    * This uses an AutoPtr instead of a raw pointer so that the
