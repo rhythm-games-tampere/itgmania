@@ -24,6 +24,7 @@ class SyncStartManager {
   bool waitingForSynchronizedStarting;
   std::string activeSyncStartSong;
   bool shouldStart;
+  int64_t startTime;
   int machinesLoadingNextSongCounter;
   RageTimer broadcastMarathonSongReadyRequested;
 
@@ -65,7 +66,7 @@ class SyncStartManager {
   std::string GetSongOrCourseToChangeTo();
   void StartListeningForSynchronizedStart(const Song& song);
   void StopListeningForSynchronizedStart();
-  bool AttemptStart();
+  bool AttemptStart(int64_t& startTime);
   void StopListeningScoreChanges();
   void SongChangedDuringGameplay(const Song& song);
   bool IsWaiting() const { return waitingForSynchronizedStarting; }

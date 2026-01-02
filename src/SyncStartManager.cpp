@@ -14,6 +14,7 @@
 #include "ScreenSelectMusic.h"
 #include "SongManager.h"
 #include "StdString.h"
+#include "arch/ArchHooks/ArchHooks.h"
 #include "global.h"
 
 SyncStartManager* SYNCMAN;
@@ -77,6 +78,28 @@ std::string CourseToString(const Course& course) {
   return course.m_sGroupName + '/' + *bits.rbegin();
 }
 
+static std::int64_t readInt64(char* buffer) {
+  return (std::int64_t)((std::int64_t(std::uint8_t(buffer[0])) << 56) |
+                        (std::int64_t(std::uint8_t(buffer[1])) << 48) |
+                        (std::int64_t(std::uint8_t(buffer[2])) << 40) |
+                        (std::int64_t(std::uint8_t(buffer[3])) << 32) |
+                        (std::int64_t(std::uint8_t(buffer[4])) << 24) |
+                        (std::int64_t(std::uint8_t(buffer[5])) << 16) |
+                        (std::int64_t(std::uint8_t(buffer[6])) << 8) |
+                        (std::int64_t(std::uint8_t(buffer[7])) << 0));
+}
+
+static void writeInt64(std::int64_t x, char* buffer) {
+  buffer[0] = (x >> 56) & 0xff;
+  buffer[1] = (x >> 48) & 0xff;
+  buffer[2] = (x >> 40) & 0xff;
+  buffer[3] = (x >> 32) & 0xff;
+  buffer[4] = (x >> 24) & 0xff;
+  buffer[5] = (x >> 16) & 0xff;
+  buffer[6] = (x >> 8) & 0xff;
+  buffer[7] = (x >> 0) & 0xff;
+}
+
 SyncStartManager::SyncStartManager()
     : socket(),
       enabled(false),
@@ -130,7 +153,11 @@ void SyncStartManager::broadcast(char code, const std::string& msg) {
 
 void SyncStartManager::broadcastStarting() {
   if (!this->activeSyncStartSong.empty()) {
-    this->broadcast(START, this->activeSyncStartSong);
+    char buffer[8];
+    writeInt64(ArchHooks::GetSyncTimeInMicroseconds(), buffer);
+    std::string msg(buffer, sizeof(buffer));
+    msg += this->activeSyncStartSong;
+    this->broadcast(START, msg);
   }
 }
 
@@ -325,16 +352,22 @@ void SyncStartManager::Update() {
     received = getNextMessage(buffer, remaddr, sizeof(buffer));
     if (received > 0) {
       char opcode = buffer[0];
-      std::string msg = std::string(buffer + 1, received - 1);
 
       if (opcode == SONG && this->waitingForSongChanges) {
+        std::string msg(buffer + 1, received - 1);
         this->songOrCourseWaitingToBeChangedTo = msg;
       } else if (opcode == START && this->waitingForSynchronizedStarting) {
+        ASSERT(received >= 9);
+        int64_t startTime = readInt64(&buffer[1]);
+        std::string msg(buffer + 9, received - 9);
+
         if (msg == activeSyncStartSong) {
+          this->startTime = startTime;
           this->waitingForSynchronizedStarting = false;
           this->shouldStart = true;
         }
       } else if (opcode == SCORE) {
+        std::string msg(buffer + 1, received - 1);
         this->receiveScoreChange(remaddr, msg);
       } else if (opcode == MARATHON_SONG_LOADING) {
         this->machinesLoadingNextSongCounter++;
@@ -346,6 +379,10 @@ void SyncStartManager::Update() {
         LOG->Info(
             "MARATHON_SONG_READY, counter=%d",
             this->machinesLoadingNextSongCounter);
+        ASSERT(received >= 9);
+        int64_t startTime = readInt64(&buffer[1]);
+        this->startTime = std::max(this->startTime, startTime);
+
         if (this->machinesLoadingNextSongCounter == 0) {
           this->waitingForSynchronizedStarting = false;
           this->shouldStart = true;
@@ -357,7 +394,9 @@ void SyncStartManager::Update() {
   if (!this->broadcastMarathonSongReadyRequested.IsZero() &&
       this->broadcastMarathonSongReadyRequested.Ago() > 2.0f) {
     this->broadcastMarathonSongReadyRequested.SetZero();
-    this->broadcast(MARATHON_SONG_READY, "");
+    char buffer[8];
+    writeInt64(ArchHooks::GetSyncTimeInMicroseconds(), buffer);
+    this->broadcast(MARATHON_SONG_READY, std::string(buffer, sizeof(buffer)));
   }
 }
 
@@ -398,8 +437,11 @@ void SyncStartManager::StopListeningForSynchronizedStart() {
   this->waitingForSynchronizedStarting = false;
 }
 
-bool SyncStartManager::AttemptStart() {
+bool SyncStartManager::AttemptStart(int64_t& startTime) {
   if (this->shouldStart) {
+    startTime = this->startTime != 0 ? this->startTime
+                                     : ArchHooks::GetSyncTimeInMicroseconds();
+    this->startTime = 0;
     this->machinesLoadingNextSongCounter = 0;
     this->shouldStart = false;
     return true;

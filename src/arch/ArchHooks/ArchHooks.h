@@ -95,6 +95,12 @@ class ArchHooks {
   static int64_t GetSystemTimeInMicroseconds();
 
   /*
+   * Returns the number of microseconds since 1970-01-01 00:00:00 in
+   * UTC.
+   */
+  static int64_t GetSyncTimeInMicroseconds();
+
+  /*
    * Add file search paths, higher priority first.
    */
   static void MountInitialFilesystems(const std::string& sDirOfExecutable);

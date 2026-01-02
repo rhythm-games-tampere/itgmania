@@ -93,6 +93,7 @@
 #include "UnlockManager.h"
 #include "XmlFile.h"
 #include "XmlFileUtil.h"
+#include "arch/ArchHooks/ArchHooks.h"
 #include "global.h"
 
 // Defines
@@ -1752,8 +1753,18 @@ void ScreenGameplay::Update(float fDeltaTime) {
   }
 
   if (SYNCMAN->isEnabled()) {
-    if (SYNCMAN->AttemptStart()) {
+    int64_t startTime = 0;
+    if (SYNCMAN->AttemptStart(startTime)) {
       SCREENMAN->HideSystemMessage();
+
+      int64_t currentTime = ArchHooks::GetSyncTimeInMicroseconds();
+      double secondsBeforeStart = (startTime - currentTime) / 1000000.0;
+      LOG->Info("SyncStart: Start time is at now %+.06f s", secondsBeforeStart);
+      secondsBeforeStart = std::clamp(secondsBeforeStart, -10.0, 10.0);
+      secondsBeforeStart *= GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate;
+      RageSoundParams p(m_pSoundMusic->GetParams());
+      p.m_StartSecond -= secondsBeforeStart;
+      m_pSoundMusic->SetParams(p);
 
       // Copied from StartPlayingSong.
       m_pSoundMusic->Play(false);
