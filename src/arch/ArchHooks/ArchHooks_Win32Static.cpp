@@ -50,6 +50,15 @@ int64_t ArchHooks::GetSystemTimeInMicroseconds() {
   return (current_time.QuadPart * 1000000LL) / g_liFrequency.QuadPart;
 }
 
+int64_t ArchHooks::GetSyncTimeInMicroseconds() {
+  FILETIME system_time;
+  GetSystemTimeAsFileTime(&system_time);
+  ULARGE_INTEGER usSince1601Times10{};
+  usSince1601Times10.u.LowPart = system_time.dwLowDateTime;
+  usSince1601Times10.u.HighPart = system_time.dwHighDateTime;
+  return usSince1601Times10.QuadPart / 10LL - 11644473600000000LL;
+}
+
 static std::string GetMountDir(const std::string& sDirOfExecutable) {
   /* All Windows data goes in the directory one level above the executable. */
   CHECKPOINT_M(ssprintf("DOE \"%s\"", sDirOfExecutable.c_str()));

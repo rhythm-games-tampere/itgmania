@@ -16,6 +16,7 @@
 #include <mach/mach.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
+#include <time.h>
 extern "C" {
 #include <IOKit/graphics/IOGraphicsLib.h>
 #include <mach/mach_time.h>
@@ -255,6 +256,13 @@ int64_t ArchHooks::GetSystemTimeInMicroseconds() {
     factor = timeBase.numer / (1000.0 * timeBase.denom);
   }
   return int64_t(mach_absolute_time() * factor);
+}
+
+int64_t ArchHooks::GetSyncTimeInMicroseconds() {
+  timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t iRet = int64_t(ts.tv_sec) * 1000000 + int64_t(ts.tv_nsec) / 1000;
+  return iRet;
 }
 
 #include "RageFileManager.h"
