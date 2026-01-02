@@ -121,6 +121,14 @@ int64_t ArchHooks::GetSystemTimeInMicroseconds() {
   }
   return iRet;
 }
+
+int64_t ArchHooks::GetSyncTimeInMicroseconds() {
+  timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t iRet = int64_t(ts.tv_sec) * 1000000 + int64_t(ts.tv_nsec) / 1000;
+  return iRet;
+}
+
 #else
 int64_t ArchHooks::GetSystemTimeInMicroseconds() {
   struct timeval tv;
