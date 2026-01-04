@@ -77,7 +77,17 @@ std::string CourseToString(const Course& course) {
   return course.m_sGroupName + '/' + *bits.rbegin();
 }
 
-SyncStartManager::SyncStartManager() {
+SyncStartManager::SyncStartManager()
+    : socket(),
+      enabled(false),
+      waitingForSongChanges(false),
+      songOrCourseWaitingToBeChangedTo(),
+      waitingForSynchronizedStarting(false),
+      activeSyncStartSong(),
+      shouldStart(false),
+      machinesLoadingNextSongCounter(0),
+      broadcastMarathonSongReadyRequested(0, 0),
+      syncStartScoreKeeper() {
   // Register with Lua.
   {
     Lua* L = LUA->Get();
@@ -86,10 +96,6 @@ SyncStartManager::SyncStartManager() {
     lua_settable(L, LUA_GLOBALSINDEX);
     LUA->Release(L);
   }
-
-  this->socket = {};
-  this->enabled = false;
-  this->machinesLoadingNextSongCounter = 0;
 }
 
 SyncStartManager::~SyncStartManager() { this->disable(); }
@@ -233,11 +239,12 @@ std::stringstream SyncStartManager::writeScoreMessage(
 }
 
 void SyncStartManager::broadcastMarathonSongLoading() {
+  this->waitingForSynchronizedStarting = true;
   this->broadcast(MARATHON_SONG_LOADING, "");
 }
 
 void SyncStartManager::broadcastMarathonSongReady() {
-  this->broadcast(MARATHON_SONG_READY, "");
+  this->broadcastMarathonSongReadyRequested.Touch();
 }
 
 void SyncStartManager::receiveScoreChange(
@@ -324,6 +331,7 @@ void SyncStartManager::Update() {
         this->songOrCourseWaitingToBeChangedTo = msg;
       } else if (opcode == START && this->waitingForSynchronizedStarting) {
         if (msg == activeSyncStartSong) {
+          this->waitingForSynchronizedStarting = false;
           this->shouldStart = true;
         }
       } else if (opcode == SCORE) {
@@ -339,11 +347,18 @@ void SyncStartManager::Update() {
             "MARATHON_SONG_READY, counter=%d",
             this->machinesLoadingNextSongCounter);
         if (this->machinesLoadingNextSongCounter == 0) {
+          this->waitingForSynchronizedStarting = false;
           this->shouldStart = true;
         }
       }
     }
   } while (received > 0);
+
+  if (!this->broadcastMarathonSongReadyRequested.IsZero() &&
+      this->broadcastMarathonSongReadyRequested.Ago() > 2.0f) {
+    this->broadcastMarathonSongReadyRequested.SetZero();
+    this->broadcast(MARATHON_SONG_READY, "");
+  }
 }
 
 std::vector<SyncStartScore> SyncStartManager::GetCurrentPlayerScores() {
@@ -438,6 +453,11 @@ class LunaSyncStartManager : public Luna<SyncStartManager> {
     return 1;
   }
 
+  static int IsWaiting(T* p, lua_State* L) {
+    lua_pushboolean(L, p->IsWaiting());
+    return 1;
+  }
+
   static int GetCurrentPlayerScores(T* p, lua_State* L) {
     auto scores = p->GetCurrentPlayerScores();
     PushScores(p, L, scores);
@@ -509,6 +529,7 @@ class LunaSyncStartManager : public Luna<SyncStartManager> {
 
   LunaSyncStartManager() {
     ADD_METHOD(IsEnabled);
+    ADD_METHOD(IsWaiting);
     ADD_METHOD(GetCurrentPlayerScores);
     ADD_METHOD(GetLatestPlayerScores);
     ADD_METHOD(BroadcastScoreChange);
