@@ -31,6 +31,7 @@
 #include "SongUtil.h"
 #include "StdString.h"
 #include "Steps.h"
+#include "SyncStartManager.h"
 #include "TimingData.h"
 #include "TimingSegments.h"
 #include "arch/Sound/RageSoundDriver.h"
@@ -597,6 +598,10 @@ void GameSoundManager::Update(float fDeltaTime) {
       p.m_Volume = fVolume;
       g_Playing->m_Music->SetParams(p);
     }
+  }
+
+  if (SYNCMAN->IsWaiting()) {
+    return;
   }
 
   if (!g_UpdatingTimer) {
