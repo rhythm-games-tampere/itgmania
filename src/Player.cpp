@@ -57,6 +57,7 @@
 #include "StatsManager.h"
 #include "Steps.h"
 #include "Style.h"
+#include "SyncStartManager.h"
 #include "ThemeManager.h"
 #include "ThemeMetric.h"
 #include "TimingData.h"
@@ -1051,6 +1052,10 @@ void Player::Update(float fDeltaTime) {
       m_pActorWithComboPosition->SetZoom(
           m_pActorWithComboPosition->GetZoom() * fJudgmentZoom);
     }
+  }
+
+  if (SYNCMAN->IsWaiting()) {
+    return;
   }
 
   // If we're paused, don't update tap or hold note logic, so hold notes can be
