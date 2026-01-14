@@ -222,23 +222,6 @@ void ScreenOptionsManageProfiles::HandleScreenMessage(const ScreenMessage SM) {
 
       GAMESTATE->m_sEditLocalProfileID.Set(sProfileID);
 
-      if (iNumProfiles < NUM_PLAYERS) {
-        int iFirstUnused = -1;
-        int index = 0;
-        for (const Preference<std::string>* i :
-             PROFILEMAN->m_sDefaultLocalProfileID.m_v) {
-          std::string sLocalProfileID = i->Get();
-          if (sLocalProfileID.empty()) {
-            iFirstUnused = index;
-            break;
-          }
-        }
-        if (iFirstUnused != -1) {
-          PROFILEMAN->m_sDefaultLocalProfileID.m_v[iFirstUnused]->Set(
-              sProfileID);
-        }
-      }
-
       SCREENMAN->SetNewScreen(this->m_sName);  // reload
     }
   } else if (SM == SM_BackFromRename) {
