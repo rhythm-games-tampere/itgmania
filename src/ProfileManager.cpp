@@ -240,8 +240,8 @@ ProfileLoadResult ProfileManager::LoadProfile(
   return lr;
 }
 
-bool ProfileManager::LoadLocalProfileFromMachine(PlayerNumber pn) {
-  std::string sProfileID = m_sDefaultLocalProfileID[pn];
+bool ProfileManager::LoadLocalProfileFromMachine(
+    PlayerNumber pn, const std::string& sProfileID) {
   if (sProfileID.empty()) {
     m_sProfileDir[pn] = "";
     return false;
@@ -352,7 +352,7 @@ bool ProfileManager::LoadFirstAvailableProfile(
     return true;
   }
 
-  if (LoadLocalProfileFromMachine(pn)) {
+  if (LoadLocalProfileFromMachine(pn, m_sDefaultLocalProfileID[pn])) {
     return true;
   }
 

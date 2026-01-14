@@ -245,8 +245,7 @@ void SongManager::Reload(bool bAllowFastLoad, LoadingWindow* ld) {
         MEMCARDMAN->UnmountCard(pn);
       }
     } else {
-      PROFILEMAN->m_sDefaultLocalProfileID[pn].Set(profileID);
-      PROFILEMAN->LoadLocalProfileFromMachine(pn);
+      PROFILEMAN->LoadLocalProfileFromMachine(pn, profileID);
     }
     GAMESTATE->LoadCurrentSettingsFromProfile(pn);
   }
