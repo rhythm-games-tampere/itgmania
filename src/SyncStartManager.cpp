@@ -75,12 +75,6 @@ std::string CourseToString(const Course& course) {
 	return course.m_sGroupName + '/' + *bits.rbegin();
 }
 
-std::string formatScore(int currentDp, int possibleDp) {
-	return ssprintf("%.*f",
-			(int) CommonMetrics::PERCENT_SCORE_DECIMAL_PLACES,
-			PlayerStageStats::MakePercentScore(currentDp, possibleDp) * 100 );
-}
-
 SyncStartManager::SyncStartManager()
 {
 	// Register with Lua.
@@ -175,31 +169,31 @@ void SyncStartManager::broadcastSelectedCourse(const Course& course) {
 
 void SyncStartManager::broadcastScoreChange(const PlayerStageStats& pPlayerStageStats,
 	int w0Count, int w1Count, int w2Count, int w3Count, int w4Count, int w5Count, int missCount,
-	int currentDp, int possibleDp)
+	int currentDp, int possibleDp, const std::string& scoreStr)
 {
-	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp);
+	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp, scoreStr);
     this->broadcast(SCORE, msg.str());
 }
 
 void SyncStartManager::broadcastFinalScore(const PlayerStageStats& pPlayerStageStats,
 	int w0Count, int w1Count, int w2Count, int w3Count, int w4Count, int w5Count, int missCount,
-	int currentDp, int possibleDp)
+	int currentDp, int possibleDp, const std::string& scoreStr)
 {
-	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp);
+	std::stringstream msg = writeScoreMessage(pPlayerStageStats, false, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp, scoreStr);
     this->broadcast(FINAL_SCORE, msg.str());
 }
 
 void SyncStartManager::broadcastFinalCourseScore(const PlayerStageStats& pPlayerStageStats,
 	int w0Count, int w1Count, int w2Count, int w3Count, int w4Count, int w5Count, int missCount,
-	int currentDp, int possibleDp)
+	int currentDp, int possibleDp, const std::string& scoreStr)
 {
-	std::stringstream msg = writeScoreMessage(pPlayerStageStats, true, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp);
+	std::stringstream msg = writeScoreMessage(pPlayerStageStats, true, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp, scoreStr);
     this->broadcast(FINAL_COURSE_SCORE, msg.str());
 }
 
 std::stringstream SyncStartManager::writeScoreMessage(const PlayerStageStats& pPlayerStageStats, bool isCourseScore,
 	int w0Count, int w1Count, int w2Count, int w3Count, int w4Count, int w5Count, int missCount,
-	int currentDp, int possibleDp) const
+	int currentDp, int possibleDp, const std::string& scoreStr) const
 {
     std::stringstream msg;
 
@@ -229,7 +223,7 @@ std::stringstream SyncStartManager::writeScoreMessage(const PlayerStageStats& pP
     msg << currentDp << '|';
     msg << possibleDp << '|';
     msg << possibleDp << '|';
-    msg << formatScore(currentDp, possibleDp) << '|';
+    msg << scoreStr << '|';
     msg << pPlayerStageStats.GetCurrentLife() << '|';
     msg << (pPlayerStageStats.m_bFailed ? '1' : '0') << '|';
 
@@ -495,7 +489,8 @@ class LunaSyncStartManager: public Luna<SyncStartManager> {
 			const int missCount = IArg(8);
 			const int currentDp = IArg(9);
 			const int possibleDp = IArg(10);
-			p->broadcastScoreChange(*playerStageStats, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp);
+			const std::string scoreStr = SArg(11);
+			p->broadcastScoreChange(*playerStageStats, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp, scoreStr);
 			return 1;
 		}
 
@@ -511,7 +506,8 @@ class LunaSyncStartManager: public Luna<SyncStartManager> {
 			const int missCount = IArg(8);
 			const int currentDp = IArg(9);
 			const int possibleDp = IArg(10);
-            p->broadcastFinalScore(*playerStageStats, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp);
+			const std::string scoreStr = SArg(11);
+            p->broadcastFinalScore(*playerStageStats, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp, scoreStr);
             return 1;
         }
 
@@ -527,7 +523,8 @@ class LunaSyncStartManager: public Luna<SyncStartManager> {
 			const int missCount = IArg(8);
 			const int currentDp = IArg(9);
 			const int possibleDp = IArg(10);
-            p->broadcastFinalCourseScore(*playerStageStats, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp);
+			const std::string scoreStr = SArg(11);
+            p->broadcastFinalCourseScore(*playerStageStats, w0Count, w1Count, w2Count, w3Count, w4Count, w5Count, missCount, currentDp, possibleDp, scoreStr);
             return 1;
         }
 
