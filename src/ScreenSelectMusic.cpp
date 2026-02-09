@@ -535,26 +535,16 @@ bool ScreenSelectMusic::Input(const InputEventPlus& input) {
     return true;
   }
 
-  // toggle sync manager
-  if (input.DeviceI.device == DEVICE_KEYBOARD &&
-      input.DeviceI.button == KEY_F10) {
-    if (input.type != IET_FIRST_PRESS) {
-      return false;
-    }
-
-    if (SYNCMAN->isEnabled()) {
-      SYNCMAN->disable();
-      LOG->Info("Synchronized start disabled");
-      SCREENMAN->SystemMessage("Synchronized start disabled");
-      g_bSampleMusicWaiting = true;
-      return true;
-    } else {
-      SYNCMAN->enable();
-      LOG->Info("Synchronized start enabled");
-      SCREENMAN->SystemMessage("Synchronized start enabled");
+  if (SYNCMAN->HandleToggleSyncStartInput(input)) {
+    g_bSampleMusicWaiting = SYNCMAN->isEnabled();
+    if (g_bSampleMusicWaiting) {
       SOUND->StopMusic();
-      return true;
     }
+    return true;
+  }
+
+  if (SYNCMAN->HandleSendSongOrCourseInput(input)) {
+    return true;
   }
 
   if (!IsTransitioning() && m_SelectionState != SelectionState_Finalized) {
@@ -719,29 +709,6 @@ bool ScreenSelectMusic::Input(const InputEventPlus& input) {
   if (SELECT_MENU_AVAILABLE && input.MenuI == GAME_BUTTON_SELECT &&
       input.type != IET_REPEAT) {
     UpdateSelectButton(input.pn, input.type == IET_FIRST_PRESS);
-  }
-
-  if (SYNCMAN->isEnabled() && m_bSelectIsDown[input.pn] &&
-      input.type == IET_FIRST_PRESS && input.MenuI == GAME_BUTTON_START) {
-    if (GAMESTATE->IsCourseMode()) {
-      Course* selectedCourse = m_MusicWheel.GetSelectedCourse();
-
-      if (selectedCourse != nullptr) {
-        SYNCMAN->broadcastSelectedCourse(*selectedCourse);
-      }
-    } else {
-      Song* selectedSong = m_MusicWheel.GetSelectedSong();
-
-      if (selectedSong != nullptr) {
-        SYNCMAN->broadcastSelectedSong(*selectedSong);
-      }
-    }
-
-    // avoid theme using codes that is same than this key combination
-    for (auto gc = (GameController)0; gc < NUM_GameController;
-         enum_add<GameController>(gc, +1)) {
-      INPUTQUEUE->ClearQueue(gc);
-    }
   }
 
   if (SELECT_MENU_AVAILABLE && m_bSelectIsDown[input.pn]) {

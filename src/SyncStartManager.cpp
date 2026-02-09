@@ -8,9 +8,11 @@
 
 #include "CommonMetrics.h"
 #include "GameState.h"
+#include "InputMapper.h"
 #include "PlayerNumber.h"
 #include "ProfileManager.h"
 #include "RageLog.h"
+#include "ScreenManager.h"
 #include "ScreenSelectMusic.h"
 #include "SongManager.h"
 #include "StdString.h"
@@ -458,6 +460,60 @@ void SyncStartManager::SongChangedDuringGameplay(const Song& song) {
 
 void SyncStartManager::StopListeningScoreChanges() {
   this->m_activeSyncStartSong = "";
+}
+
+bool SyncStartManager::HandleToggleSyncStartInput(const InputEventPlus& input) {
+  bool isToggleInput = input.DeviceI.device == DEVICE_KEYBOARD &&
+                       input.DeviceI.button == KEY_F10;
+  if (!isToggleInput) {
+    return false;
+  }
+
+  if (input.type != IET_FIRST_PRESS) {
+    return true;
+  }
+
+  if (SYNCMAN->isEnabled()) {
+    disable();
+    LOG->Info("Synchronized start disabled");
+    SCREENMAN->SystemMessage("Synchronized start disabled");
+  } else {
+    enable();
+    LOG->Info("Synchronized start enabled");
+    SCREENMAN->SystemMessage("Synchronized start enabled");
+  }
+  return true;
+}
+
+bool SyncStartManager::HandleSendSongOrCourseInput(
+    const InputEventPlus& input) {
+  bool isBroadcastInput =
+      isEnabled() && input.MenuI == GAME_BUTTON_START &&
+      input.type == IET_FIRST_PRESS &&
+      INPUTMAPPER->IsBeingPressed(GAME_BUTTON_SELECT, input.pn);
+  if (!isBroadcastInput) {
+    return false;
+  }
+
+  if (GAMESTATE->IsCourseMode()) {
+    Course* selectedCourse = GAMESTATE->m_pCurCourse;
+    if (selectedCourse != nullptr) {
+      broadcastSelectedCourse(*selectedCourse);
+    }
+  } else {
+    Song* selectedSong = GAMESTATE->m_pCurSong;
+    if (selectedSong != nullptr) {
+      broadcastSelectedSong(*selectedSong);
+    }
+  }
+
+  // avoid theme using codes that is same than this key combination
+  for (auto gc = (GameController)0; gc < NUM_GameController;
+       enum_add<GameController>(gc, +1)) {
+    INPUTQUEUE->ClearQueue(gc);
+  }
+
+  return true;
 }
 
 // lua start
