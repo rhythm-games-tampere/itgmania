@@ -478,6 +478,16 @@ void ScreenSelectMusic::Update(float fDeltaTime) {
       Song* song = SONGMAN->FindSong(songOrCoursePath);
       if (song != nullptr) {
         changed = m_MusicWheel.SelectSong(song);
+        // Found the song but couldn't select it. Maybe it's
+        // filtered out by the sort order? Let's try SORT_GROUP.
+        SortOrder currentSortOrder = GAMESTATE->m_SortOrder;
+        if (!changed && currentSortOrder != SORT_GROUP) {
+          m_MusicWheel.ChangeSort(SORT_GROUP);
+          changed = m_MusicWheel.SelectSong(song);
+          if (!changed) {
+            m_MusicWheel.ChangeSort(currentSortOrder);
+          }
+        }
       }
     }
 
