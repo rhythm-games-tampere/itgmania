@@ -5,6 +5,7 @@
 #include <string>
 
 #include "Course.h"
+#include "InputEventPlus.h"
 #include "PlayerNumber.h"
 #include "PlayerStageStats.h"
 #include "RageTimer.h"
@@ -70,6 +71,17 @@ class SyncStartManager {
   void StopListeningScoreChanges();
   void SongChangedDuringGameplay(const Song& song);
   bool IsWaiting() const { return m_waitingForSynchronizedStarting; }
+
+  /// @brief If the input is the toggle sync start key (F10), toggle sync start.
+  /// @param input
+  /// @return true if handled, false if not
+  bool HandleToggleSyncStartInput(const InputEventPlus& input);
+
+  /// @brief If the input is the broadcast song key (Select+Start), broadcast
+  /// the current song or course.
+  /// @param input
+  /// @return true if handled, false if not
+  bool HandleSendSongOrCourseInput(const InputEventPlus& input);
 
   // Lua
   void PushSelf(lua_State* L);

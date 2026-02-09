@@ -1795,6 +1795,19 @@ void ScreenGameplay::Update(float fDeltaTime) {
             "machines!");
       }
     }
+  } else if (SYNCMAN->IsWaiting()) {
+    // SyncStart was disabled while waiting for the start signal. Let's
+    // just start the song.
+    SYNCMAN->StopListeningForSynchronizedStart();
+
+    // Copied from StartPlayingSong.
+    m_pSoundMusic->Play(false);
+    if (m_bPaused) {
+      m_pSoundMusic->Pause(true);
+    }
+    GAMESTATE->m_Position.m_fMusicSeconds = -5000;
+    UpdateSongPosition(0);
+    ASSERT(GAMESTATE->m_Position.m_fMusicSeconds > -4000);
   }
 
   UpdateSongPosition(fDeltaTime);
@@ -2541,7 +2554,14 @@ bool ScreenGameplay::Input(const InputEventPlus& input) {
     this->HandleMessage(msg);
   }
 
-  if (SYNCMAN->IsWaiting()) {
+  if (SYNCMAN->isEnabled() && SYNCMAN->IsWaiting()) {
+    if (SYNCMAN->HandleToggleSyncStartInput(input)) {
+      return true;
+    }
+    if (SYNCMAN->HandleSendSongOrCourseInput(input)) {
+      return true;
+    }
+
     if (input.type == IET_FIRST_PRESS && input.MenuI == GAME_BUTTON_BACK) {
       SYNCMAN->StopListeningForSynchronizedStart();
       LOG->Trace("Player %i went back", input.pn + 1);

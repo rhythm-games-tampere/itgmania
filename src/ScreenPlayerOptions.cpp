@@ -21,6 +21,7 @@
 #include "ScreenMessage.h"
 #include "ScreenOptions.h"
 #include "ScreenOptionsMaster.h"
+#include "SyncStartManager.h"
 #include "ThemeManager.h"
 #include "global.h"
 
@@ -64,6 +65,18 @@ void ScreenPlayerOptions::BeginScreen() {
 }
 
 bool ScreenPlayerOptions::Input(const InputEventPlus& input) {
+  if (SYNCMAN->HandleToggleSyncStartInput(input)) {
+    return true;
+  }
+  if (SYNCMAN->HandleSendSongOrCourseInput(input)) {
+    return true;
+  }
+  // Select normally moves to the previous row. We don't want that to happen
+  // when pressing Select+Start to broadcast the song so eat the input.
+  if (SYNCMAN->isEnabled() && input.MenuI == GAME_BUTTON_SELECT) {
+    return true;
+  }
+
   bool bHandled = false;
 
   if (m_bAskOptionsMessage && input.type == IET_FIRST_PRESS &&
