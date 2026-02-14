@@ -8,7 +8,7 @@ struct CrashInfo {
 
   const void* m_BacktracePointers[BACKTRACE_MAX_SIZE] = {nullptr};
 
-  enum { MAX_BACKTRACE_THREADS = 32 };
+  static constexpr int MAX_BACKTRACE_THREADS = 32;
   const void* m_AlternateThreadBacktrace[MAX_BACKTRACE_THREADS]
 
   CrashInfo() {
