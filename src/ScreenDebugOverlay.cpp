@@ -132,6 +132,27 @@ static bool IsGameplay() {
          SCREENMAN->GetTopScreen()->GetScreenType() == gameplay;
 }
 
+static bool IsEditMode() {
+  if (!SCREENMAN) {
+    return false;
+  }
+  Screen* top = SCREENMAN->GetTopScreen();
+  if (!top) {
+    return false;
+  }
+  if (SCREENMAN->GetTopScreen()->GetScreenType() == gameplay) {
+    // Not in edit mode if we are playing in ScreenEdit.
+    return false;
+  }
+  if (SCREENMAN->GetTopScreen()->GetName() == "ScreenEdit") {
+    return true;
+  }
+  if (SCREENMAN->GetTopScreen()->GetName() == "ScreenPractice") {
+    return true;
+  }
+  return false;
+}
+
 REGISTER_SCREEN_CLASS(ScreenDebugOverlay);
 
 ScreenDebugOverlay::~ScreenDebugOverlay() {
@@ -469,6 +490,16 @@ static bool GetValueFromMap(const std::map<U, V>& m, const U& key, V& val) {
 }
 
 bool ScreenDebugOverlay::Input(const InputEventPlus& input) {
+  if (input.type != IET_RELEASE && input.DeviceI.device == DEVICE_KEYBOARD &&
+      (input.DeviceI.button == KEY_PGUP || input.DeviceI.button == KEY_PGDN) &&
+      // In edit mode, PgUp/PgDown are used for scrolling.
+      !IsEditMode()) {
+    int sign = input.DeviceI.button == KEY_PGUP ? 1 : -1;
+    float vol = ChangeVolume(sign * 0.05f);
+    SCREENMAN->SystemMessage(ssprintf("Music volume: %.0f %%", 100 * vol));
+    return true;
+  }
+
   if (!g_bEnableDebugMenu) {
     return Screen::Input(input);
   }
@@ -576,7 +607,7 @@ static void SetSpeed() {
   // PauseMusic( g_bIsHalt );
 }
 
-void ChangeVolume(float fDelta) {
+float ChangeVolume(float fDelta) {
   Preference<float>* pRet =
       Preference<float>::GetPreferenceByName("SoundVolume");
   float fVol = pRet->Get();
@@ -584,6 +615,7 @@ void ChangeVolume(float fDelta) {
   rage_clamp(fVol, 0.0f, 1.0f);
   pRet->Set(fVol);
   SOUNDMAN->SetMixVolume();
+  return fVol;
 }
 
 void ChangeVisualDelay(float fDelta) {

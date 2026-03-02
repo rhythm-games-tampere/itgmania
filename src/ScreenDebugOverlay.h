@@ -11,7 +11,7 @@
 #include "Quad.h"
 #include "Screen.h"
 
-void ChangeVolume(float fDelta);
+float ChangeVolume(float fDelta);
 void ChangeVisualDelay(float fDelta);
 
 class ScreenDebugOverlay : public Screen {
