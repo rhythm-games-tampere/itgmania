@@ -86,11 +86,7 @@ static_assert(
 // Important:  Every game must define the buttons: "Start", "Back", "MenuLeft",
 // "Operator" and "MenuRight"
 static const AutoMappings g_AutoKeyMappings_Dance = AutoMappings(
-    "", "", "", AutoMappingEntry(0, KEY_DEL, GAME_BUTTON_MENULEFT, false),
-    AutoMappingEntry(0, KEY_PGDN, GAME_BUTTON_MENURIGHT, false),
-    AutoMappingEntry(0, KEY_HOME, GAME_BUTTON_MENUUP, false),
-    AutoMappingEntry(0, KEY_END, GAME_BUTTON_MENUDOWN, false),
-    AutoMappingEntry(0, KEY_LEFT, DANCE_BUTTON_LEFT, false),
+    "", "", "", AutoMappingEntry(0, KEY_LEFT, DANCE_BUTTON_LEFT, false),
     AutoMappingEntry(0, KEY_RIGHT, DANCE_BUTTON_RIGHT, false),
     AutoMappingEntry(0, KEY_UP, DANCE_BUTTON_UP, false),
     AutoMappingEntry(0, KEY_DOWN, DANCE_BUTTON_DOWN, false),
