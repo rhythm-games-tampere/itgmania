@@ -545,6 +545,13 @@ bool ScreenSelectMusic::Input(const InputEventPlus& input) {
     return true;
   }
 
+  if (input.type == IET_FIRST_PRESS &&
+      input.DeviceI == DeviceInput(DEVICE_KEYBOARD, KEY_DEL)) {
+    SOUND->StopMusic();
+    SCREENMAN->SystemMessageNoAnimate("Music stopped");
+    return true;
+  }
+
   if (SYNCMAN->HandleToggleSyncStartInput(input)) {
     g_bSampleMusicWaiting = SYNCMAN->isEnabled();
     if (g_bSampleMusicWaiting) {
