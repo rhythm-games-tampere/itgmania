@@ -5,6 +5,7 @@
 
 #include "NoteData.h"
 #include "NoteTypes.h"
+#include "PlayerNumber.h"
 #include "TimingData.h"
 
 /* ColumnCues are used to indicate to the player which column the next note will
@@ -14,13 +15,16 @@
 struct ColumnCueColumn {
   int colNum;
   TapNoteType noteType;
+  PlayerNumber player;
   ColumnCueColumn() {
     colNum = 0;
     noteType = TapNoteType_Invalid;
+    player = PlayerNumber_Invalid;
   }
-  ColumnCueColumn(int c, TapNoteType n) {
+  ColumnCueColumn(int c, TapNoteType n, PlayerNumber pn) {
     colNum = c;
     noteType = n;
+    player = pn;
   }
 };
 
@@ -45,7 +49,7 @@ struct ColumnCue {
    */
   static void CalculateColumnCues(
       const NoteData& in, TimingData* timing, std::vector<ColumnCue>& out,
-      float minDuration);
+      PlayerNumber pn, float minDuration);
 };
 
 #endif
