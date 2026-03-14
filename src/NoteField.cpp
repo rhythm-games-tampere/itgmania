@@ -349,8 +349,23 @@ void NoteField::InitColumnRenderers() {
       StyleType_TwoPlayersSharedSides) {
     // Check if the player state player number is player 2
     if (m_pPlayerState->m_PlayerNumber == PLAYER_2) {
-      m_pCurDisplay->m_ReceptorArrowRow.SetDrawOrder(0);
-      m_pCurDisplay->m_ReceptorArrowRow.SetVisible(false);
+      const PlayerOptions& opts1 =
+          GAMESTATE->m_pPlayerState[PLAYER_1]->m_PlayerOptions.GetCurrent();
+      const PlayerOptions& opts2 =
+          GAMESTATE->m_pPlayerState[PLAYER_2]->m_PlayerOptions.GetCurrent();
+
+      bool sameScrolls = true;
+      for (int i = 0; i < PlayerOptions::Scroll::NUM_SCROLLS; i++) {
+        if (std::abs(opts1.m_fScrolls[i] - opts2.m_fScrolls[i]) >= 1e-3) {
+          sameScrolls = false;
+          break;
+        }
+      }
+
+      if (sameScrolls) {
+        m_pCurDisplay->m_ReceptorArrowRow.SetDrawOrder(0);
+        m_pCurDisplay->m_ReceptorArrowRow.SetVisible(false);
+      }
     }
   }
   for (size_t ncr = 0; ncr < m_ColumnRenderers.size(); ++ncr) {
