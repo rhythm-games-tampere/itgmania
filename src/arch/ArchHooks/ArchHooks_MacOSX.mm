@@ -344,9 +344,63 @@ static std::string PathForDirectory(NSSearchPathDirectory directory) {
   return [url fileSystemRepresentation];
 }
 
+static void MigrateLegacyDirectory(const std::string& oldPath, const std::string& newPath) {
+  NSFileManager* fileManager = [NSFileManager defaultManager];
+  NSString* source = [NSString stringWithUTF8String:oldPath.c_str()];
+  NSString* destination = [NSString stringWithUTF8String:newPath.c_str()];
+
+  if (source == nil || destination == nil) {
+    return;
+  }
+
+  BOOL sourceIsDirectory = NO;
+  if (![fileManager fileExistsAtPath:source isDirectory:&sourceIsDirectory] || !sourceIsDirectory) {
+    return;
+  }
+
+  if ([fileManager fileExistsAtPath:destination]) {
+    return;
+  }
+
+  NSString* destinationParent = [destination stringByDeletingLastPathComponent];
+  NSError* error = nil;
+  if (![fileManager createDirectoryAtPath:destinationParent
+              withIntermediateDirectories:YES
+                               attributes:nil
+                                    error:&error]) {
+    LOG->Warn(
+        "Failed to prepare migration destination '%s': %s",
+        [destinationParent fileSystemRepresentation],
+        [[error localizedDescription] UTF8String]);
+    return;
+  }
+
+  error = nil;
+  if ([fileManager moveItemAtPath:source toPath:destination error:&error]) {
+    LOG->Info(
+        "Migrated legacy directory '%s' to '%s'.",
+        [source fileSystemRepresentation],
+        [destination fileSystemRepresentation]);
+    return;
+  }
+
+  LOG->Warn(
+      "Failed to migrate legacy directory '%s' to '%s': %s",
+      [source fileSystemRepresentation],
+      [destination fileSystemRepresentation],
+      [[error localizedDescription] UTF8String]);
+}
+
 void ArchHooks::MountUserFilesystems(const std::string& sDirOfExecutable) {
+  std::string libraryDir = PathForDirectory(NSLibraryDirectory);
+  std::string cachesDir = PathForDirectory(NSCachesDirectory);
   std::string appSupportDir = PathForDirectory(NSApplicationSupportDirectory);
   std::string appSupportPath = ssprintf("%s/" PRODUCT_ID, appSupportDir.c_str());
+
+  MigrateLegacyDirectory(libraryDir + "/Preferences/" PRODUCT_ID, appSupportPath + "/Save");
+  MigrateLegacyDirectory(cachesDir + "/" PRODUCT_ID " Screenshots", appSupportPath + "/Screenshots");
+  MigrateLegacyDirectory(cachesDir + "/" PRODUCT_ID, appSupportPath + "/Cache");
+  MigrateLegacyDirectory(libraryDir + "/Logs/" PRODUCT_ID, appSupportPath + "/Logs");
 
   MountDirectories(appSupportPath);
 }
