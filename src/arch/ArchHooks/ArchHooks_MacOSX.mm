@@ -368,23 +368,13 @@ static void MigrateLegacyDirectory(const std::string& oldPath, const std::string
               withIntermediateDirectories:YES
                                attributes:nil
                                     error:&error]) {
-    LOG->Warn(
-        "Failed to prepare migration destination '%s': %s",
-        [destinationParent fileSystemRepresentation], [[error localizedDescription] UTF8String]);
     return;
   }
 
   error = nil;
   if ([fileManager moveItemAtPath:source toPath:destination error:&error]) {
-    LOG->Info(
-        "Migrated legacy directory '%s' to '%s'.", [source fileSystemRepresentation],
-        [destination fileSystemRepresentation]);
     return;
   }
-
-  LOG->Warn(
-      "Failed to migrate legacy directory '%s' to '%s': %s", [source fileSystemRepresentation],
-      [destination fileSystemRepresentation], [[error localizedDescription] UTF8String]);
 }
 
 void ArchHooks::MountUserFilesystems(const std::string& sDirOfExecutable) {
