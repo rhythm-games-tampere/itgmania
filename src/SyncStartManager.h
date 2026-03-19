@@ -14,21 +14,21 @@
 
 class SyncStartManager {
  private:
-  std::unique_ptr<BroadcastSocket> socket;
-  bool enabled;
+  std::unique_ptr<BroadcastSocket> m_socket;
+  bool m_enabled;
   void broadcast(char code, const std::string& msg);
   int getNextMessage(char* buffer, std::string& remaddr, size_t bufferSize);
 
-  bool waitingForSongChanges;
-  std::string songOrCourseWaitingToBeChangedTo;
-  bool waitingForSynchronizedStarting;
-  std::string activeSyncStartSong;
-  bool shouldStart;
-  int64_t startTime;
-  int machinesLoadingNextSongCounter;
-  RageTimer broadcastMarathonSongReadyRequested;
+  bool m_waitingForSongChanges;
+  std::string m_songOrCourseWaitingToBeChangedTo;
+  bool m_waitingForSynchronizedStarting;
+  std::string m_activeSyncStartSong;
+  bool m_shouldStart;
+  int64_t m_startTime;
+  int m_machinesLoadingNextSongCounter;
+  RageTimer m_broadcastMarathonSongReadyRequested;
 
-  SyncStartScoreKeeper syncStartScoreKeeper;
+  SyncStartScoreKeeper m_syncStartScoreKeeper;
 
  public:
   SyncStartManager();
@@ -69,7 +69,7 @@ class SyncStartManager {
   bool AttemptStart(int64_t& startTime);
   void StopListeningScoreChanges();
   void SongChangedDuringGameplay(const Song& song);
-  bool IsWaiting() const { return waitingForSynchronizedStarting; }
+  bool IsWaiting() const { return m_waitingForSynchronizedStarting; }
 
   // Lua
   void PushSelf(lua_State* L);
