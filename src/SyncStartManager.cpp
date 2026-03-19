@@ -101,16 +101,16 @@ static void writeInt64(std::int64_t x, char* buffer) {
 }
 
 SyncStartManager::SyncStartManager()
-    : socket(),
-      enabled(false),
-      waitingForSongChanges(false),
-      songOrCourseWaitingToBeChangedTo(),
-      waitingForSynchronizedStarting(false),
-      activeSyncStartSong(),
-      shouldStart(false),
-      machinesLoadingNextSongCounter(0),
-      broadcastMarathonSongReadyRequested(0, 0),
-      syncStartScoreKeeper() {
+    : m_socket(),
+      m_enabled(false),
+      m_waitingForSongChanges(false),
+      m_songOrCourseWaitingToBeChangedTo(),
+      m_waitingForSynchronizedStarting(false),
+      m_activeSyncStartSong(),
+      m_shouldStart(false),
+      m_machinesLoadingNextSongCounter(0),
+      m_broadcastMarathonSongReadyRequested(0, 0),
+      m_syncStartScoreKeeper() {
   // Register with Lua.
   {
     Lua* L = LUA->Get();
@@ -123,19 +123,19 @@ SyncStartManager::SyncStartManager()
 
 SyncStartManager::~SyncStartManager() { this->disable(); }
 
-bool SyncStartManager::isEnabled() const { return this->enabled; }
+bool SyncStartManager::isEnabled() const { return this->m_enabled; }
 
 void SyncStartManager::enable() {
   // initialize
   std::string listenAddress = ssprintf("0.0.0.0:%d", PORT);
-  this->socket.reset(BroadcastSocket::Listen(listenAddress.c_str()));
-  if (this->socket) {
-    this->enabled = true;
+  this->m_socket.reset(BroadcastSocket::Listen(listenAddress.c_str()));
+  if (this->m_socket) {
+    this->m_enabled = true;
   }
 }
 
 void SyncStartManager::broadcast(char code, const std::string& msg) {
-  if (!this->enabled) {
+  if (!this->m_enabled) {
     return;
   }
 
@@ -148,15 +148,15 @@ void SyncStartManager::broadcast(char code, const std::string& msg) {
   LOG->Info("BROADCASTING: code %d, msg: '%s'", code, msg.c_str());
 #endif
 
-  this->socket->Broadcast(buffer, length + 1);
+  this->m_socket->Broadcast(buffer, length + 1);
 }
 
 void SyncStartManager::broadcastStarting() {
-  if (!this->activeSyncStartSong.empty()) {
+  if (!this->m_activeSyncStartSong.empty()) {
     char buffer[8];
     writeInt64(ArchHooks::GetSyncTimeInMicroseconds(), buffer);
     std::string msg(buffer, sizeof(buffer));
-    msg += this->activeSyncStartSong;
+    msg += this->m_activeSyncStartSong;
     this->broadcast(START, msg);
   }
 }
@@ -223,7 +223,7 @@ std::stringstream SyncStartManager::writeScoreMessage(
       msg << "NullCourse" << '|';
     }
   } else {
-    msg << activeSyncStartSong << '|';
+    msg << m_activeSyncStartSong << '|';
   }
 
   msg << (int)pPlayerStageStats.m_player_number << '|';
@@ -266,17 +266,17 @@ std::stringstream SyncStartManager::writeScoreMessage(
 }
 
 void SyncStartManager::broadcastMarathonSongLoading() {
-  this->waitingForSynchronizedStarting = true;
+  this->m_waitingForSynchronizedStarting = true;
   this->broadcast(MARATHON_SONG_LOADING, "");
 }
 
 void SyncStartManager::broadcastMarathonSongReady() {
-  this->broadcastMarathonSongReadyRequested.Touch();
+  this->m_broadcastMarathonSongReadyRequested.Touch();
 }
 
 void SyncStartManager::receiveScoreChange(
     const std::string& addr, const std::string& msg) {
-  if (this->activeSyncStartSong.empty()) {
+  if (this->m_activeSyncStartSong.empty()) {
     return;
   }
 
@@ -297,7 +297,7 @@ void SyncStartManager::receiveScoreChange(
 
     // ignore scores for other than current song
     std::string& songName = *iter++;
-    if (songName != this->activeSyncStartSong) {
+    if (songName != this->m_activeSyncStartSong) {
       return;
     }
 
@@ -320,26 +320,26 @@ void SyncStartManager::receiveScoreChange(
 
     scoreData.totalHolds = std::stoi(*iter++);
 
-    this->syncStartScoreKeeper.AddScore(scorePlayer, scoreData);
+    this->m_syncStartScoreKeeper.AddScore(scorePlayer, scoreData);
     MESSAGEMAN->Broadcast("SyncStartPlayerScoresChanged");
-  } catch (std::exception& e) {
+  } catch (std::exception&) {
     // just don't crash!
     LOG->Warn("Could not parse score change '%s'", msg.c_str());
   }
 }
 
 void SyncStartManager::disable() {
-  this->socket.reset();
-  this->enabled = false;
+  this->m_socket.reset();
+  this->m_enabled = false;
 }
 
 int SyncStartManager::getNextMessage(
     char* buffer, std::string& remaddr, size_t bufferSize) {
-  return this->socket->Receive(buffer, bufferSize, remaddr, 0);
+  return this->m_socket->Receive(buffer, bufferSize, remaddr, 0);
 }
 
 void SyncStartManager::Update() {
-  if (!this->enabled) {
+  if (!this->m_enabled) {
     return;
   }
 
@@ -353,72 +353,74 @@ void SyncStartManager::Update() {
     if (received > 0) {
       char opcode = buffer[0];
 
-      if (opcode == SONG && this->waitingForSongChanges) {
+      if (opcode == SONG && this->m_waitingForSongChanges) {
         std::string msg(buffer + 1, received - 1);
-        this->songOrCourseWaitingToBeChangedTo = msg;
-      } else if (opcode == START && this->waitingForSynchronizedStarting) {
+        this->m_songOrCourseWaitingToBeChangedTo = msg;
+      } else if (opcode == START && this->m_waitingForSynchronizedStarting) {
         ASSERT(received >= 9);
         int64_t startTime = readInt64(&buffer[1]);
         std::string msg(buffer + 9, received - 9);
 
-        if (msg == activeSyncStartSong) {
-          this->startTime = startTime;
-          this->waitingForSynchronizedStarting = false;
-          this->shouldStart = true;
+        if (msg == m_activeSyncStartSong) {
+          this->m_startTime = startTime;
+          this->m_waitingForSynchronizedStarting = false;
+          this->m_shouldStart = true;
         }
       } else if (opcode == SCORE) {
         std::string msg(buffer + 1, received - 1);
         this->receiveScoreChange(remaddr, msg);
       } else if (opcode == MARATHON_SONG_LOADING) {
-        this->machinesLoadingNextSongCounter++;
+        this->m_machinesLoadingNextSongCounter++;
         LOG->Info(
             "MARATHON_SONG_LOADING, counter=%d",
-            this->machinesLoadingNextSongCounter);
+            this->m_machinesLoadingNextSongCounter);
       } else if (opcode == MARATHON_SONG_READY) {
-        this->machinesLoadingNextSongCounter--;
+        this->m_machinesLoadingNextSongCounter--;
         LOG->Info(
             "MARATHON_SONG_READY, counter=%d",
-            this->machinesLoadingNextSongCounter);
+            this->m_machinesLoadingNextSongCounter);
         ASSERT(received >= 9);
         int64_t startTime = readInt64(&buffer[1]);
-        this->startTime = std::max(this->startTime, startTime);
+        this->m_startTime = std::max(this->m_startTime, startTime);
 
-        if (this->machinesLoadingNextSongCounter == 0) {
-          this->waitingForSynchronizedStarting = false;
-          this->shouldStart = true;
+        if (this->m_machinesLoadingNextSongCounter == 0) {
+          this->m_waitingForSynchronizedStarting = false;
+          this->m_shouldStart = true;
         }
       }
     }
   } while (received > 0);
 
-  if (!this->broadcastMarathonSongReadyRequested.IsZero() &&
-      this->broadcastMarathonSongReadyRequested.Ago() > 2.0f) {
-    this->broadcastMarathonSongReadyRequested.SetZero();
-    char buffer[8];
-    writeInt64(ArchHooks::GetSyncTimeInMicroseconds(), buffer);
-    this->broadcast(MARATHON_SONG_READY, std::string(buffer, sizeof(buffer)));
+  if (!this->m_broadcastMarathonSongReadyRequested.IsZero() &&
+      this->m_broadcastMarathonSongReadyRequested.Ago() > 2.0f) {
+    this->m_broadcastMarathonSongReadyRequested.SetZero();
+    char startTimeBuffer[8];
+    writeInt64(ArchHooks::GetSyncTimeInMicroseconds(), startTimeBuffer);
+    this->broadcast(
+        MARATHON_SONG_READY,
+        std::string(startTimeBuffer, sizeof(startTimeBuffer)));
   }
 }
 
 std::vector<SyncStartScore> SyncStartManager::GetCurrentPlayerScores() {
-  return this->syncStartScoreKeeper.GetScores(false);
+  return this->m_syncStartScoreKeeper.GetScores(false);
 }
 
 std::vector<SyncStartScore> SyncStartManager::GetLatestPlayerScores() {
-  return this->syncStartScoreKeeper.GetScores(true);
+  return this->m_syncStartScoreKeeper.GetScores(true);
 }
 
 void SyncStartManager::ListenForSongChanges(bool enabled) {
   LOG->Info("Listen for song changes: %d", enabled);
-  this->waitingForSongChanges = enabled;
-  this->songOrCourseWaitingToBeChangedTo = "";
+  this->m_waitingForSongChanges = enabled;
+  this->m_songOrCourseWaitingToBeChangedTo = "";
 }
 
 std::string SyncStartManager::GetSongOrCourseToChangeTo() {
-  std::string songOrCourse = this->songOrCourseWaitingToBeChangedTo;
+  std::string songOrCourse = this->m_songOrCourseWaitingToBeChangedTo;
 
   if (!songOrCourse.empty()) {
-    this->songOrCourseWaitingToBeChangedTo = "";
+    this->m_songOrCourseWaitingToBeChangedTo = "";
     return songOrCourse;
   } else {
     return "";
@@ -426,24 +428,24 @@ std::string SyncStartManager::GetSongOrCourseToChangeTo() {
 }
 
 void SyncStartManager::StartListeningForSynchronizedStart(const Song& song) {
-  this->syncStartScoreKeeper.ResetScores();
-  this->activeSyncStartSong = SongToString(song);
-  this->shouldStart = false;
-  this->waitingForSynchronizedStarting = true;
+  this->m_syncStartScoreKeeper.ResetScores();
+  this->m_activeSyncStartSong = SongToString(song);
+  this->m_shouldStart = false;
+  this->m_waitingForSynchronizedStarting = true;
 }
 
 void SyncStartManager::StopListeningForSynchronizedStart() {
-  this->shouldStart = false;
-  this->waitingForSynchronizedStarting = false;
+  this->m_shouldStart = false;
+  this->m_waitingForSynchronizedStarting = false;
 }
 
 bool SyncStartManager::AttemptStart(int64_t& startTime) {
-  if (this->shouldStart) {
-    startTime = this->startTime != 0 ? this->startTime
-                                     : ArchHooks::GetSyncTimeInMicroseconds();
-    this->startTime = 0;
-    this->machinesLoadingNextSongCounter = 0;
-    this->shouldStart = false;
+  if (this->m_shouldStart) {
+    startTime = this->m_startTime != 0 ? this->m_startTime
+                                       : ArchHooks::GetSyncTimeInMicroseconds();
+    this->m_startTime = 0;
+    this->m_machinesLoadingNextSongCounter = 0;
+    this->m_shouldStart = false;
     return true;
   } else {
     return false;
@@ -451,11 +453,11 @@ bool SyncStartManager::AttemptStart(int64_t& startTime) {
 }
 
 void SyncStartManager::SongChangedDuringGameplay(const Song& song) {
-  this->activeSyncStartSong = SongToString(song);
+  this->m_activeSyncStartSong = SongToString(song);
 }
 
 void SyncStartManager::StopListeningScoreChanges() {
-  this->activeSyncStartSong = "";
+  this->m_activeSyncStartSong = "";
 }
 
 // lua start
