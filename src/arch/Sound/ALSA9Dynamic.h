@@ -1,4 +1,5 @@
 #ifndef ALSA9_DYNAMIC_H
+#define ALSA9_DYNAMIC_H
 
 #include <alsa/asoundlib.h>
 
