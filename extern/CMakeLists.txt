@@ -12,6 +12,8 @@ include(CMakeProject-pcre.cmake)
 include(CMakeProject-tomcrypt.cmake)
 include(CMakeProject-tommath.cmake)
 include(CMakeProject-png.cmake)
+include(CMakeProject-stb_image.cmake)
+include(CMakeProject-stb_image_write.cmake)
 include(CMakeProject-ixwebsocket.cmake)
 include(CMakeProject-miniz.cmake)
 
