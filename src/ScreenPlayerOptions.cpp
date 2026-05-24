@@ -132,6 +132,11 @@ void ScreenPlayerOptions::HandleScreenMessage(const ScreenMessage SM) {
   }
 
   ScreenOptionsMaster::HandleScreenMessage(SM);
+
+  if (SM == SM_ExportOptions) {
+    FOREACH_HumanPlayer(pn) GAMESTATE->SaveCurrentSettingsToProfile(pn);
+    GAMESTATE->SavePlayerProfiles();
+  }
 }
 
 void ScreenPlayerOptions::UpdateDisqualified(int row, PlayerNumber pn) {
