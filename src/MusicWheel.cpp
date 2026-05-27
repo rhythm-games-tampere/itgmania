@@ -2096,6 +2096,14 @@ void MusicWheel::PlayerJoined() {
   // joining, and not doing it in autogen causes other weird problems. -Kyz
   FOREACH_ENUM(SortOrder, so) { m_WheelItemDatasStatus[so] = INVALID; }
   SetOpenSections(m_sExpandedParentSectionName, m_sExpandedSectionName);
+
+  // Reselect the selected song or course.
+  if ((GAMESTATE->m_pCurSong && SelectSong(GAMESTATE->m_pCurSong)) ||
+      (GAMESTATE->m_pCurCourse && SelectCourse(GAMESTATE->m_pCurCourse))) {
+    RebuildWheelItems();
+  } else {
+    SCREENMAN->PostMessageToTopScreen(SM_SongChanged, 0);
+  }
 }
 
 bool MusicWheel::IsRouletting() const {

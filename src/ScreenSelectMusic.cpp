@@ -1196,8 +1196,6 @@ void ScreenSelectMusic::HandleMessage(const Message& msg) {
      * Let MusicWheel know about the late join. */
     m_MusicWheel.PlayerJoined();
 
-    AfterMusicChange();
-
     int iSel = 0;
     PlayerNumber pn;
     bool b = msg.GetParam("Player", pn);
