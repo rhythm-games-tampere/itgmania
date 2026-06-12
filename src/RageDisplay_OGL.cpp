@@ -905,7 +905,7 @@ void RageDisplay_Legacy::EndFrame() {
     CameraPopMatrix();
   }
 
-  FrameLimitBeforeVsync(g_pWind->GetActualVideoModeParams().rate);
+  FrameLimitBeforeVsync();
   g_pWind->SwapBuffers();
   FrameLimitAfterVsync();
 
