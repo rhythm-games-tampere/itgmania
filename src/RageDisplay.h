@@ -492,9 +492,10 @@ class RageDisplay {
   const RageMatrix* GetWorldTop() const;
   const RageMatrix* GetTextureTop() const;
 
-  // To limit the framerate, call FrameLimitBeforeVsync before waiting
-  // for vsync and FrameLimitAfterVsync after.
-  void FrameLimitBeforeVsync(int iFPS);
+  // Call immediately before and after the backend-specific present routine.
+  // When vsync is enabled, the present call itself provides the pacing.
+  // When it is disabled, these helpers apply any manual frame limiting.
+  void FrameLimitBeforeVsync();
   void FrameLimitAfterVsync();
 };
 
