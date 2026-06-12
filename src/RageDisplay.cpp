@@ -835,13 +835,16 @@ void RageDisplay::DrawCircle(const RageSpriteVertex& v, float radius) {
   this->DrawCircleInternal(v, radius);
 }
 
-void RageDisplay::FrameLimitBeforeVsync(int iFPS) {
-  ASSERT(iFPS != 0);
+int GetFrameLimitIntervalAsMicroseconds(
+    const ActualVideoModeParams& vm) noexcept {
+  const bool noValidFrameTimingHistoryOrVsync =
+      !vm.vsync && vm.rate > 0 && g_fFrameLimitPercent.Get() > 0.0f &&
+      !g_LastFrameEndedAt.IsZero();
 
   int iDelayMicroseconds = 0;
-  if (g_fFrameLimitPercent.Get() > 0.0f && !g_LastFrameEndedAt.IsZero()) {
+  if (noValidFrameTimingHistoryOrVsync) {
     float fFrameTime = g_LastFrameEndedAt.GetDeltaTime();
-    float fExpectedTime = 1.0f / iFPS;
+    float fExpectedTime = 1.0f / vm.rate;
 
     /* This is typically used to turn some of the delay that would normally
      * be waiting for vsync and turn it into a usleep, to make sure we give
@@ -860,6 +863,8 @@ void RageDisplay::FrameLimitBeforeVsync(int iFPS) {
         10000);  // give some time to other processes and threads
   }
 
+  return iDelayMicroseconds;
+}
   if (iDelayMicroseconds > 0) {
     usleep(iDelayMicroseconds);
   }
