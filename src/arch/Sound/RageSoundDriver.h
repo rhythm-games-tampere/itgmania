@@ -49,8 +49,11 @@ class RageSoundDriver : public RageDriver {
    * playing the sound, either). */
   bool PauseMixing(RageSoundBase* pSound, bool bStop);
 
-  /* Get the current hardware frame position, in the same time base as passed to
-   * RageSound::CommitPlayingPosition. */
+  /* Return the current source frame that is audible for the given sound. */
+  bool GetPlayingPosition(
+      const RageSoundBase* pSound, int& iSourceFrame,
+      RageTimer* pTimer = nullptr);
+
   int64_t GetHardwareFrame(RageTimer* pTimer) const;
   virtual int64_t GetPosition() const = 0;
 
