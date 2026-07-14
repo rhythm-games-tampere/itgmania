@@ -1181,25 +1181,21 @@ void ScreenSelectMusic::ChangeSteps(PlayerNumber pn, int dir) {
 
 void ScreenSelectMusic::HandleMessage(const Message& msg) {
   if (m_bRunning && msg == Message_PlayerJoined) {
-    PlayerNumber master_pn = GAMESTATE->GetMasterPlayerNumber();
-    // The current steps may no longer be playable. If one player has double
-    // steps selected, they are no longer playable now that P2 has joined.
+    PlayerNumber joining_pn;
+    bool b = msg.GetParam("Player", joining_pn);
+    ASSERT(b);
 
-    // TODO: Invalidate the CurSteps only if they are no longer playable.
-    // That way, after music change will clamp to the nearest in the
-    // StepsDisplayList.
-    GAMESTATE->m_pCurSteps[master_pn].SetWithoutBroadcast(nullptr);
-    FOREACH_ENUM(PlayerNumber, p)
-    GAMESTATE->m_pCurSteps[p].SetWithoutBroadcast(nullptr);
-
-    /* If a course is selected, it may no longer be playable.
-     * Let MusicWheel know about the late join. */
+    // MusicWheel re-selects the same Song/Course if it can
     m_MusicWheel.PlayerJoined();
 
-    int iSel = 0;
-    PlayerNumber pn;
-    bool b = msg.GetParam("Player", pn);
-    ASSERT(b);
+    // Rebuild m_vpSteps/m_vpTrails, clamp indices, and sync GAMESTATE
+    AfterMusicChange();
+
+    // There might be some scenarios where a player can have null steps/trail at
+    // this point: for example if P1 is in doubles courses and P2 joins. It's
+    // currently not allowed but could be in the future. MusicWheel won't move
+    // automatically in this scenario, but there's a separate START check to
+    // prevent finalizing with null steps.
 
     // load player profiles
     if (GAMESTATE->HaveProfileToLoad()) {
@@ -1207,22 +1203,6 @@ void ScreenSelectMusic::HandleMessage(const Message& msg) {
           true);  // I guess you could always load edits here...
       SCREENMAN
           ->ZeroNextUpdate();  // be kind, don't skip frames if you can avoid it
-    }
-
-    m_iSelection[pn] = iSel;
-    if (GAMESTATE->IsCourseMode()) {
-      Trail* pTrail =
-          m_vpTrails.empty() ? nullptr : m_vpTrails[m_iSelection[pn]];
-      GAMESTATE->m_pCurTrail[pn].Set(pTrail);
-    } else {
-      Steps* pSteps = m_vpSteps.empty() ? nullptr : m_vpSteps[m_iSelection[pn]];
-
-      // handle changing rave difficulty on join
-      if (GAMESTATE->m_PlayMode == PLAY_MODE_RAVE) {
-        pSteps = m_vpSteps[m_iSelection[master_pn]];
-      }
-
-      GAMESTATE->m_pCurSteps[pn].Set(pSteps);
     }
   }
 

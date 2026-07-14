@@ -2097,12 +2097,11 @@ void MusicWheel::PlayerJoined() {
   FOREACH_ENUM(SortOrder, so) { m_WheelItemDatasStatus[so] = INVALID; }
   SetOpenSections(m_sExpandedParentSectionName, m_sExpandedSectionName);
 
-  // Reselect the selected song or course.
+  // Reselect the selected song or course if possible. Caller checks if
+  // succeeded.
   if ((GAMESTATE->m_pCurSong && SelectSong(GAMESTATE->m_pCurSong)) ||
       (GAMESTATE->m_pCurCourse && SelectCourse(GAMESTATE->m_pCurCourse))) {
     RebuildWheelItems();
-  } else {
-    SCREENMAN->PostMessageToTopScreen(SM_SongChanged, 0);
   }
 }
 
