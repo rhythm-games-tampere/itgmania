@@ -1499,6 +1499,26 @@ bool ScreenSelectMusic::MenuStart(const InputEventPlus& input) {
     } break;
   }
 
+  // Refuse to start if a player has null steps for whatever reason
+  // caveat: TWO_PART_CONFIRMS_ONLY + timer ignores this
+  if (GetNextSelectionState() == SelectionState_Finalized) {
+    bool bAllPlayersHaveSelection = true;
+    FOREACH_HumanPlayer(p) {
+      if (GAMESTATE->IsCourseMode()) {
+        bAllPlayersHaveSelection &= GAMESTATE->m_pCurTrail[p] != nullptr;
+      } else {
+        bAllPlayersHaveSelection &= GAMESTATE->m_pCurSteps[p] != nullptr;
+      }
+    }
+    if (!bAllPlayersHaveSelection) {
+      LOG->Warn(
+          "Refusing to finalize song selection: a joined player has null "
+          "steps/trail selected.");
+      m_soundLocked.Play(true);
+      return true;
+    }
+  }
+
   FOREACH_ENUM(PlayerNumber, p) {
     if (!TWO_PART_SELECTION ||
         m_SelectionState == SelectionState_SelectingSteps) {
