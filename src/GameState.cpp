@@ -1085,23 +1085,26 @@ void GameState::ForceOtherPlayersToCompatibleSteps(PlayerNumber main) {
       return;
     }
     int num_players = GAMESTATE->GetNumPlayersEnabled();
-    StyleType styletype_to_match =
-        GAMEMAN
-            ->GetFirstCompatibleStyle(
-                GAMESTATE->GetCurrentGame(), num_players,
-                steps_to_match->m_StepsType)
-            ->m_StyleType;
+    // Can be null: for example during a player join when num_players is
+    // incompatible with m_StepsType
+    const Style* style_to_match = GAMEMAN->GetFirstCompatibleStyle(
+        GAMESTATE->GetCurrentGame(), num_players, steps_to_match->m_StepsType);
+    if (style_to_match == nullptr) {
+      // Main player's steps have no compatible style, abort. If this was caused
+      // by a player joining, ScreenSelectMusic will also attempt to set
+      // compatible steps.
+      return;
+    }
+    StyleType styletype_to_match = style_to_match->m_StyleType;
     FOREACH_EnabledPlayer(pn) {
       Trail* pn_steps = m_pCurTrail[pn].Get();
       bool match_failed = pn_steps == nullptr;
       if (steps_to_match != pn_steps && pn_steps != nullptr) {
-        StyleType pn_styletype = GAMEMAN
-                                     ->GetFirstCompatibleStyle(
-                                         GAMESTATE->GetCurrentGame(),
-                                         num_players, pn_steps->m_StepsType)
-                                     ->m_StyleType;
-        if (styletype_to_match == StyleType_TwoPlayersSharedSides ||
-            pn_styletype == StyleType_TwoPlayersSharedSides) {
+        const Style* pn_style = GAMEMAN->GetFirstCompatibleStyle(
+            GAMESTATE->GetCurrentGame(), num_players, pn_steps->m_StepsType);
+        if (pn_style == nullptr ||
+            styletype_to_match == StyleType_TwoPlayersSharedSides ||
+            pn_style->m_StyleType == StyleType_TwoPlayersSharedSides) {
           match_failed = true;
         }
       }
@@ -1115,24 +1118,22 @@ void GameState::ForceOtherPlayersToCompatibleSteps(PlayerNumber main) {
       return;
     }
     int num_players = GAMESTATE->GetNumPlayersEnabled();
-    StyleType styletype_to_match =
-        GAMEMAN
-            ->GetFirstCompatibleStyle(
-                GAMESTATE->GetCurrentGame(), num_players,
-                steps_to_match->m_StepsType)
-            ->m_StyleType;
+    const Style* style_to_match = GAMEMAN->GetFirstCompatibleStyle(
+        GAMESTATE->GetCurrentGame(), num_players, steps_to_match->m_StepsType);
+    if (style_to_match == nullptr) {
+      return;  // same case as courses
+    }
+    StyleType styletype_to_match = style_to_match->m_StyleType;
     std::string music_to_match = steps_to_match->GetMusicFile();
     FOREACH_EnabledPlayer(pn) {
       Steps* pn_steps = m_pCurSteps[pn].Get();
       bool match_failed = pn_steps == nullptr;
       if (steps_to_match != pn_steps && pn_steps != nullptr) {
-        StyleType pn_styletype = GAMEMAN
-                                     ->GetFirstCompatibleStyle(
-                                         GAMESTATE->GetCurrentGame(),
-                                         num_players, pn_steps->m_StepsType)
-                                     ->m_StyleType;
-        if (styletype_to_match == StyleType_TwoPlayersSharedSides ||
-            pn_styletype == StyleType_TwoPlayersSharedSides) {
+        const Style* pn_style = GAMEMAN->GetFirstCompatibleStyle(
+            GAMESTATE->GetCurrentGame(), num_players, pn_steps->m_StepsType);
+        if (pn_style == nullptr ||
+            styletype_to_match == StyleType_TwoPlayersSharedSides ||
+            pn_style->m_StyleType == StyleType_TwoPlayersSharedSides) {
           match_failed = true;
         }
         if (music_to_match != pn_steps->GetMusicFile()) {
