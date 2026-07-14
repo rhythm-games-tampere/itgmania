@@ -1558,6 +1558,9 @@ bool ScreenSelectMusic::MenuStart(const InputEventPlus& input) {
       }
     }
 
+    // Steps are chosen, don't accept any incoming changes
+    SYNCMAN->ListenForSongChanges(false);
+
     // Now that Steps have been chosen, set a Style that can play them.
     GAMESTATE->SetCompatibleStylesForPlayers();
     GAMESTATE->ForceSharedSidesMatch();
