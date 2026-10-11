@@ -1,6 +1,7 @@
 #include "RageDisplay_OGL.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -260,9 +261,6 @@ struct GLStateCache {
   float zbias;
   bool zbias_valid;
   int64_t program;  // -1 unknown
-  int matrix_mode;  // 0 unknown
-  bool proj_valid, mv_valid, tex_mat_valid[NUM_TextureUnit];
-  RageMatrix proj, mv, tex_mat[NUM_TextureUnit];
   int arr_vertex, arr_color, arr_normal, arr_tex[NUM_TextureUnit];
   int64_t array_buffer, element_buffer;  // -1 unknown
 
@@ -271,13 +269,10 @@ struct GLStateCache {
     for (int i = 0; i < NUM_TextureUnit; ++i) {
       tex_enabled[i] = tex_mode[i] = texgen[i] = arr_tex[i] = -1;
       bound_tex[i] = -1;
-      tex_mat_valid[i] = false;
     }
     blend = zwrite = ztest = cull = alpha_test = lighting = -1;
     zbias_valid = false;
     program = -1;
-    matrix_mode = 0;
-    proj_valid = mv_valid = false;
     arr_vertex = arr_color = arr_normal = -1;
     array_buffer = element_buffer = -1;
   }
@@ -370,27 +365,6 @@ void CacheEnable(
     glDisable(cap);
   }
   cached = on;
-}
-
-void CacheMatrixMode(GLenum mode) {
-  if (g_cache.matrix_mode == static_cast<int>(mode)) {
-    return;
-  }
-  CountGL(RenderProfiler::kGLMatrix);
-  glMatrixMode(mode);
-  g_cache.matrix_mode = mode;
-}
-
-void CacheLoadMatrix(
-    GLenum mode, const RageMatrix& m, RageMatrix& cached, bool& valid) {
-  if (valid && memcmp(&m, &cached, sizeof(RageMatrix)) == 0) {
-    return;
-  }
-  CacheMatrixMode(mode);
-  CountGL(RenderProfiler::kGLMatrix);
-  glLoadMatrixf(reinterpret_cast<const float*>(&m));
-  cached = m;
-  valid = true;
 }
 
 void CacheBindBuffer(GLenum target, int64_t& cached, GLuint id) {
@@ -530,15 +504,79 @@ struct FixedFunctionState {
   bool alpha_test = false;
   bool lighting = false;
   int lights = 0;  // bit i: GL_LIGHT0 + i enabled
+  int active_unit = 0;
+
+  // Shader uniforms. Each group has a serial (from NextUniformSerial) that
+  // changes with its value, so programs re-upload only what changed.
+  RageMatrix projection, modelview;
+  RageMatrix texture[2];  // per texture unit, set while the unit is active
+  uint64_t projection_serial = 0, modelview_serial = 0, texture_serial = 0;
+  // Front material and light 0 (position in eye space), GL's defaults.
+  RageColor emission{0, 0, 0, 1}, ambient{0.2f, 0.2f, 0.2f, 1},
+      diffuse{0.8f, 0.8f, 0.8f, 1}, specular{0, 0, 0, 1};
+  float shininess = 0;
+  RageColor light_ambient{0, 0, 0, 1}, light_diffuse{1, 1, 1, 1},
+      light_specular{1, 1, 1, 1};
+  float light_position[4] = {0, 0, 1, 0};
+  uint64_t lighting_serial = 0;
 };
 thread_local FixedFunctionState g_ff_state;
 
+/* Serials are global, so they never repeat between threads, whose programs
+ * (and uniform values) are shared. */
+uint64_t NextUniformSerial() {
+  static std::atomic<uint64_t> serial{0};
+  return ++serial;
+}
+
 FixedFunctionState& FF() {
   if (g_ff_state.generation != g_iContextGeneration) {
-    g_ff_state = FixedFunctionState();
-    g_ff_state.generation = g_iContextGeneration;
+    FixedFunctionState& ff = g_ff_state = FixedFunctionState();
+    ff.generation = g_iContextGeneration;
+    RageMatrixIdentity(&ff.projection);
+    RageMatrixIdentity(&ff.modelview);
+    RageMatrixIdentity(&ff.texture[0]);
+    RageMatrixIdentity(&ff.texture[1]);
+    ff.projection_serial = NextUniformSerial();
+    ff.modelview_serial = NextUniformSerial();
+    ff.texture_serial = NextUniformSerial();
+    ff.lighting_serial = NextUniformSerial();
   }
   return g_ff_state;
+}
+
+// Copies m into dst, with a new serial if it changed.
+void SetUniformMatrix(RageMatrix& dst, uint64_t& serial, const RageMatrix& m) {
+  if (memcmp(&dst, &m, sizeof(RageMatrix)) != 0) {
+    dst = m;
+    serial = NextUniformSerial();
+  }
+}
+
+/* gl_NormalMatrix: the inverse transpose of the modelview's upper 3x3, which
+ * is its cofactor matrix over the determinant. out is column-major. */
+void GetNormalMatrix(const RageMatrix& m, float out[9]) {
+  float a[3][3];  // a[row][col] of the GL matrix; RageMatrix is transposed
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      a[r][c] = m.m[c][r];
+    }
+  }
+  float cof[3][3];
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      cof[r][c] = a[(r + 1) % 3][(c + 1) % 3] * a[(r + 2) % 3][(c + 2) % 3] -
+                  a[(r + 1) % 3][(c + 2) % 3] * a[(r + 2) % 3][(c + 1) % 3];
+    }
+  }
+  const float det =
+      a[0][0] * cof[0][0] + a[0][1] * cof[0][1] + a[0][2] * cof[0][2];
+  const float inv = det != 0 ? 1 / det : 1;
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      out[c * 3 + r] = cof[r][c] * inv;
+    }
+  }
 }
 
 /* Binds p, first regrowing it to cover iPieces pieces of N indices each;
@@ -702,38 +740,58 @@ static GLuint g_gDistanceFieldShader = 0;
 /* "Fixed function" draws everything no other program is asked for. */
 static GLuint g_hFixedFunctionShader = 0;
 
-/* Programs with a State uniform (those using Fixed function.vert), and the
- * value last uploaded. Program objects and their uniforms are shared between
- * contexts, and only one thread renders at a time, so this is global. */
-struct ProgramState {
-  GLint location;
-  int last[8];
+/* Uniform locations of each program (-1 where it has none), and what was
+ * last uploaded to it. Program objects and their uniforms are shared between
+ * contexts and only one thread renders at a time, so this is global. */
+struct ProgramInfo {
+  GLint state, modelview, projection, normal, texture;
+  GLint emission, ambient, diffuse, specular, shininess;
+  GLint light_ambient, light_diffuse, light_specular, light_position;
+  bool lit;  // has any material or light uniform
+  int last_state[8];
+  uint64_t modelview_serial = 0, projection_serial = 0, normal_serial = 0;
+  uint64_t texture_serial = 0, lighting_serial = 0;
 };
-static std::unordered_map<GLuint, ProgramState> g_ProgramStates;
+static std::unordered_map<GLuint, ProgramInfo> g_Programs;
 
-/* Loads a program and sets its samplers. Returns 0 on failure. */
+/* Loads a program, sets its samplers and records its uniforms. Returns 0 on
+ * failure. */
 static GLuint InitProgram(const std::string& sVert, const std::string& sFrag) {
   GLuint hProgram = LoadProgram(sVert, sFrag);
   if (hProgram == 0) {
     return 0;
   }
   CacheUseProgram(hProgram);
-  glUniform1i(glGetUniformLocation(hProgram, "Texture0"), 0);
-  glUniform1i(glGetUniformLocation(hProgram, "Texture1"), 0);
-  glUniform1i(glGetUniformLocation(hProgram, "Texture2"), 1);
-  GLint iState = glGetUniformLocation(hProgram, "State");
-  if (iState != -1) {
-    ProgramState& ps = g_ProgramStates[hProgram];
-    ps.location = iState;
-    std::fill(std::begin(ps.last), std::end(ps.last), -1);
-  }
+  auto loc = [hProgram](const char* name) {
+    return glGetUniformLocation(hProgram, name);
+  };
+  glUniform1i(loc("Texture0"), 0);
+  glUniform1i(loc("Texture1"), 0);
+  glUniform1i(loc("Texture2"), 1);
+  ProgramInfo& p = g_Programs[hProgram];
+  p.state = loc("State");
+  p.modelview = loc("ModelViewMatrix");
+  p.projection = loc("ProjectionMatrix");
+  p.normal = loc("NormalMatrix");
+  p.texture = loc("TextureMatrix");
+  p.emission = loc("MaterialEmission");
+  p.ambient = loc("MaterialAmbient");
+  p.diffuse = loc("MaterialDiffuse");
+  p.specular = loc("MaterialSpecular");
+  p.shininess = loc("MaterialShininess");
+  p.light_ambient = loc("LightAmbient");
+  p.light_diffuse = loc("LightDiffuse");
+  p.light_specular = loc("LightSpecular");
+  p.light_position = loc("LightPosition");
+  p.lit = p.ambient != -1 || p.light_position != -1;
+  std::fill(std::begin(p.last_state), std::end(p.last_state), -1);
   CacheUseProgram(0);
   return hProgram;
 }
 
 /* Returns an error if the shader every draw depends on didn't load. */
 static std::string InitShaders() {
-  g_ProgramStates.clear();
+  g_Programs.clear();
   const char* ff = "Fixed function.vert";
   g_hFixedFunctionShader = InitProgram(ff, "Fixed function.frag");
 
@@ -1263,10 +1321,12 @@ static void UseDrawProgram(bool bTextureMatrixScale = false) {
   }
   CacheUseProgram(program);
 
-  auto it = g_ProgramStates.find(program);
-  if (it == g_ProgramStates.end()) {
+  auto it = g_Programs.find(program);
+  if (it == g_Programs.end()) {
     return;
   }
+  ProgramInfo& p = it->second;
+
   // State[0]: texture modes of units 1 and 2, alpha test. State[1]: sphere
   // map on units 1 and 2, lighting (2 with light 0 on), texture matrix scale.
   // ponytail: two texture units and light 0, all anything uses. Units 3-4
@@ -1294,44 +1354,85 @@ static void UseDrawProgram(bool bTextureMatrixScale = false) {
     }
     state[4 + tu] = ff.texgen[tu];
   }
-
-  ProgramState& ps = it->second;
-  if (!std::equal(std::begin(state), std::end(state), std::begin(ps.last))) {
+  if (p.state != -1 &&
+      !std::equal(
+          std::begin(state), std::end(state), std::begin(p.last_state))) {
     CountGL(RenderProfiler::kGLOther);
-    glUniform4iv(ps.location, 2, state);
-    std::copy(std::begin(state), std::end(state), std::begin(ps.last));
+    glUniform4iv(p.state, 2, state);
+    std::copy(std::begin(state), std::end(state), std::begin(p.last_state));
+  }
+
+  if (p.projection != -1 && p.projection_serial != ff.projection_serial) {
+    CountGL(RenderProfiler::kGLMatrix);
+    glUniformMatrix4fv(
+        p.projection, 1, GL_FALSE,
+        reinterpret_cast<const float*>(&ff.projection));
+    p.projection_serial = ff.projection_serial;
+  }
+  if (p.modelview != -1 && p.modelview_serial != ff.modelview_serial) {
+    CountGL(RenderProfiler::kGLMatrix);
+    glUniformMatrix4fv(
+        p.modelview, 1, GL_FALSE,
+        reinterpret_cast<const float*>(&ff.modelview));
+    p.modelview_serial = ff.modelview_serial;
+  }
+  if (p.texture != -1 && p.texture_serial != ff.texture_serial) {
+    CountGL(RenderProfiler::kGLMatrix);
+    glUniformMatrix4fv(
+        p.texture, 2, GL_FALSE, reinterpret_cast<const float*>(ff.texture));
+    p.texture_serial = ff.texture_serial;
+  }
+  // The normal matrix costs an inverse, so only when lighting or texgen use it.
+  const bool bNormals = state[4] || state[5] || state[6];
+  if (p.normal != -1 && bNormals && p.normal_serial != ff.modelview_serial) {
+    float normal[9];
+    GetNormalMatrix(ff.modelview, normal);
+    CountGL(RenderProfiler::kGLMatrix);
+    glUniformMatrix3fv(p.normal, 1, GL_FALSE, normal);
+    p.normal_serial = ff.modelview_serial;
+  }
+  // "Fixed function" programs only light when lighting is on; others (cel
+  // shading) always use the light.
+  const bool bLighting = p.state == -1 || state[6] != 0;
+  if (p.lit && bLighting && p.lighting_serial != ff.lighting_serial) {
+    CountGL(RenderProfiler::kGLLighting, 9);
+    glUniform4fv(p.emission, 1, ff.emission);
+    glUniform4fv(p.ambient, 1, ff.ambient);
+    glUniform4fv(p.diffuse, 1, ff.diffuse);
+    glUniform4fv(p.specular, 1, ff.specular);
+    glUniform1f(p.shininess, ff.shininess);
+    glUniform4fv(p.light_ambient, 1, ff.light_ambient);
+    glUniform4fv(p.light_diffuse, 1, ff.light_diffuse);
+    glUniform4fv(p.light_specular, 1, ff.light_specular);
+    glUniform4fv(p.light_position, 1, ff.light_position);
+    p.lighting_serial = ff.lighting_serial;
   }
 }
 
 void RageDisplay_Legacy::SendCurrentMatrices() {
-  UseDrawProgram();
+  FixedFunctionState& ff = FF();
 
   RageMatrix projection;
   RageMatrixMultiply(&projection, GetCentering(), GetProjectionTop());
-
   if (g_bInvertY) {
     RageMatrix flip;
     RageMatrixScale(&flip, +1, -1, +1);
     RageMatrixMultiply(&projection, &flip, &projection);
   }
-  CacheLoadMatrix(GL_PROJECTION, projection, g_cache.proj, g_cache.proj_valid);
+  SetUniformMatrix(ff.projection, ff.projection_serial, projection);
 
   // OpenGL has just "modelView", whereas D3D has "world" and "view"
   RageMatrix modelView;
   RageMatrixMultiply(&modelView, GetViewTop(), GetWorldTop());
-  CacheLoadMatrix(GL_MODELVIEW, modelView, g_cache.mv, g_cache.mv_valid);
+  SetUniformMatrix(ff.modelview, ff.modelview_serial, modelView);
 
-  // The texture matrix belongs to the active texture unit.
-  const int unit = g_cache.active_unit;
-  if (unit >= 0) {
-    CacheLoadMatrix(
-        GL_TEXTURE, *GetTextureTop(), g_cache.tex_mat[unit],
-        g_cache.tex_mat_valid[unit]);
-  } else {
-    CacheMatrixMode(GL_TEXTURE);
-    CountGL(RenderProfiler::kGLMatrix);
-    glLoadMatrixf((const float*)GetTextureTop());
+  // Like GL's texture matrix, this belongs to the active texture unit.
+  if (ff.active_unit < 2) {
+    SetUniformMatrix(
+        ff.texture[ff.active_unit], ff.texture_serial, *GetTextureTop());
   }
+
+  UseDrawProgram();
 }
 
 // CPU-side copy of the mesh data that RageCompiledGeometryHWOGL uploads.
@@ -1800,9 +1901,7 @@ void RageDisplay_Legacy::DrawLineStripInternal(
    * use this for anything 3d at the moment anyway ...)  This is needed
    * because points aren't scaled like regular polys--a zero-size point
    * will still be drawn. */
-  RageMatrix mat;
-  RenderProfiler::CountGL(RenderProfiler::kGLGet);
-  glGetFloatv(GL_MODELVIEW_MATRIX, (float*)mat);
+  const RageMatrix& mat = FF().modelview;
 
   if (mat.m[0][0] < 1e-5 && mat.m[1][1] < 1e-5) {
     return;
@@ -1822,6 +1921,7 @@ static bool SetTextureUnit(TextureUnit tu) {
     return false;
   }
   CacheActiveUnit(tu);
+  FF().active_unit = tu;
   return true;
 }
 
@@ -1832,6 +1932,7 @@ void RageDisplay_Legacy::ClearAllTextures() {
   // HACK:  Reset the active texture to 0.
   // TODO:  Change all texture functions to take a stage number.
   CacheActiveUnit(0);
+  FF().active_unit = 0;
 }
 
 int RageDisplay_Legacy::GetNumTextureUnits() {
@@ -2205,26 +2306,20 @@ void RageDisplay_Legacy::SetMaterial(
   // want Models to have basic color and transparency.
   // We can do this fake lighting by setting the vertex color.
   // XXX: unintended: SetLighting must be called before SetMaterial
-  GLboolean bLighting;
-  if (g_cache.lighting >= 0) {
-    bLighting = g_cache.lighting == 1;
-  } else {
-    RenderProfiler::CountGL(RenderProfiler::kGLGet);
-    glGetBooleanv(GL_LIGHTING, &bLighting);
-  }
-  RenderProfiler::CountGL(RenderProfiler::kGLLighting, bLighting ? 5 : 1);
-
-  if (bLighting) {
-    glMaterialfv(GL_FRONT, GL_EMISSION, emissive);
-    glMaterialfv(GL_FRONT, GL_AMBIENT, ambient);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, diffuse);
-    glMaterialfv(GL_FRONT, GL_SPECULAR, specular);
-    glMaterialf(GL_FRONT, GL_SHININESS, shininess);
+  FixedFunctionState& ff = FF();
+  if (ff.lighting) {
+    ff.emission = emissive;
+    ff.ambient = ambient;
+    ff.diffuse = diffuse;
+    ff.specular = specular;
+    ff.shininess = shininess;
+    ff.lighting_serial = NextUniformSerial();
   } else {
     RageColor c = diffuse;
     c.r += emissive.r + ambient.r;
     c.g += emissive.g + ambient.g;
     c.b += emissive.b + ambient.b;
+    RenderProfiler::CountGL(RenderProfiler::kGLLighting);
     glColor4fv(c);
   }
 }
@@ -2236,29 +2331,28 @@ void RageDisplay_Legacy::SetLighting(bool b) {
 
 void RageDisplay_Legacy::SetLightOff(int index) {
   FF().lights &= ~(1 << index);
-  glDisable(GL_LIGHT0 + index);
 }
 
 void RageDisplay_Legacy::SetLightDirectional(
     int index, const RageColor& ambient, const RageColor& diffuse,
     const RageColor& specular, const RageVector3& dir) {
-  // Light coordinates are transformed by the modelview matrix, but
-  // we are being passed in world-space coords.
-  // SendCurrentMatrices used to always leave GL_TEXTURE current; keep the
-  // push/identity/pop on that matrix so lighting behaves as before.
-  CacheMatrixMode(GL_TEXTURE);
-  glPushMatrix();
-  glLoadIdentity();
-
-  FF().lights |= 1 << index;
-  glEnable(GL_LIGHT0 + index);
-  glLightfv(GL_LIGHT0 + index, GL_AMBIENT, ambient);
-  glLightfv(GL_LIGHT0 + index, GL_DIFFUSE, diffuse);
-  glLightfv(GL_LIGHT0 + index, GL_SPECULAR, specular);
-  float position[4] = {dir.x, dir.y, dir.z, 0};
-  glLightfv(GL_LIGHT0 + index, GL_POSITION, position);
-
-  glPopMatrix();
+  FixedFunctionState& ff = FF();
+  ff.lights |= 1 << index;
+  if (index != 0) {
+    return;  // only light 0 reaches the shaders
+  }
+  ff.light_ambient = ambient;
+  ff.light_diffuse = diffuse;
+  ff.light_specular = specular;
+  // Like glLightfv(GL_POSITION), the direction is taken to eye space by the
+  // modelview of the last draw. RageMatrix is GL's matrix transposed.
+  const RageMatrix& m = ff.modelview;
+  for (int r = 0; r < 3; ++r) {
+    ff.light_position[r] =
+        m.m[0][r] * dir.x + m.m[1][r] * dir.y + m.m[2][r] * dir.z;
+  }
+  ff.light_position[3] = 0;
+  ff.lighting_serial = NextUniformSerial();
 }
 
 void RageDisplay_Legacy::SetCullMode(CullMode mode) {

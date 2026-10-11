@@ -1,4 +1,7 @@
 uniform sampler2D Texture0;
+uniform mat4 ModelViewMatrix;
+uniform vec4 MaterialAmbient;
+uniform vec4 LightPosition;  // light 0, eye space
 
 varying vec2 vCoord;
 varying vec3 vNor;
@@ -10,9 +13,9 @@ void main() {
 	nor = normalize(vNor);
 	
 	vec4 diffuse, specular, color, lightSource;
-	float ambient = length(gl_FrontMaterial.ambient.rgb);
-	lightSource = gl_LightSource[0].position;
-	light = normalize(gl_ModelViewMatrix * lightSource).xyz;
+	float ambient = length(MaterialAmbient.rgb);
+	lightSource = LightPosition;
+	light = normalize(ModelViewMatrix * lightSource).xyz;
 	
 	color = texture2D(Texture0, vCoord.st);
 	float intensity = max(dot(light,nor), 0.0);

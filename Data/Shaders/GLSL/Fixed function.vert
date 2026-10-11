@@ -1,6 +1,6 @@
 // Stands in for the fixed-function pipeline (RageDisplay_OGL.cpp,
 // UseDrawProgram), and is the vertex stage of the effect mode shaders.
-// Inputs, matrices, light and material are still the GL built-ins.
+// Vertex inputs are still the GL built-ins.
 
 // [1].x, [1].y: sphere map texgen on texture units 1 and 2
 // [1].z: lighting (0 off, 1 on without lights, 2 on with light 0)
@@ -9,6 +9,25 @@ uniform ivec4 State[2];
 
 // How much of the texture matrix applies per vertex (RageModelVertex).
 attribute vec4 TextureMatrixScale;
+
+uniform mat4 ModelViewMatrix;
+uniform mat4 ProjectionMatrix;
+uniform mat3 NormalMatrix;  // inverse transpose of the modelview's 3x3
+uniform mat4 TextureMatrix[2];
+
+// Front material, and light 0: directional, position in eye space.
+uniform vec4 MaterialEmission;
+uniform vec4 MaterialAmbient;
+uniform vec4 MaterialDiffuse;
+uniform vec4 MaterialSpecular;
+uniform float MaterialShininess;
+uniform vec4 LightAmbient;
+uniform vec4 LightDiffuse;
+uniform vec4 LightSpecular;
+uniform vec4 LightPosition;
+
+// GL_LIGHT_MODEL_AMBIENT, never changed from its default.
+const vec4 LightModelAmbient = vec4(0.2, 0.2, 0.2, 1.0);
 
 varying vec4 vColor;
 varying vec4 vTex0;
@@ -28,44 +47,43 @@ void main(void)
 	{
 		// What the old "Texture matrix scaling" shader did: no lighting
 		// (a known bug, kept so models look the same) and no sphere map.
-		gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-		vec4 scaled = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+		gl_Position = ProjectionMatrix * (ModelViewMatrix * gl_Vertex);
+		vec4 scaled = TextureMatrix[0] * gl_MultiTexCoord0;
 		vTex0 = scaled * TextureMatrixScale +
 			gl_MultiTexCoord0 * (vec4(1.0) - TextureMatrixScale);
-		vTex1 = gl_TextureMatrix[1] * gl_MultiTexCoord1;
+		vTex1 = TextureMatrix[1] * gl_MultiTexCoord1;
 		vColor = clamp(gl_Color, 0.0, 1.0);
 		return;
 	}
 
-	// ftransform matches fixed-function positions exactly.
-	gl_Position = ftransform();
+	vec4 eyePosition = ModelViewMatrix * gl_Vertex;
+	gl_Position = ProjectionMatrix * eyePosition;
 
 	// GL_NORMALIZE is off, so fixed function uses the normal unnormalized.
-	vec3 normal = gl_NormalMatrix * gl_Normal;
+	vec3 normal = NormalMatrix * gl_Normal;
 
 	vec4 color = gl_Color;
 	if (State[1].z != 0)
 	{
 		// Emission + material ambient * light model ambient
-		color = gl_FrontLightModelProduct.sceneColor;
+		color = MaterialEmission + MaterialAmbient * LightModelAmbient;
 		if (State[1].z == 2)
 		{
 			// Light 0 is directional; non-local viewer.
-			vec3 L = normalize(gl_LightSource[0].position.xyz);
+			vec3 L = normalize(LightPosition.xyz);
 			float NdotL = dot(normal, L);
-			color += gl_FrontLightProduct[0].ambient;
-			color += max(NdotL, 0.0) * gl_FrontLightProduct[0].diffuse;
+			color += LightAmbient * MaterialAmbient;
+			color += max(NdotL, 0.0) * LightDiffuse * MaterialDiffuse;
 			// Specular only where the clamped N.L is nonzero.
 			if (NdotL > 0.0)
 			{
 				vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
 				float NdotH = max(dot(normal, H), 0.0);
-				float shininess = gl_FrontMaterial.shininess;
-				float s = shininess == 0.0 ? 1.0 : pow(NdotH, shininess);
-				color += s * gl_FrontLightProduct[0].specular;
+				float s = MaterialShininess == 0.0 ? 1.0 : pow(NdotH, MaterialShininess);
+				color += s * LightSpecular * MaterialSpecular;
 			}
 		}
-		color.a = gl_FrontMaterial.diffuse.a;
+		color.a = MaterialDiffuse.a;
 	}
 	// Fixed function clamps vertex colors (glColor can exceed 1).
 	vColor = clamp(color, 0.0, 1.0);
@@ -74,12 +92,12 @@ void main(void)
 	vec4 tex1 = gl_MultiTexCoord1;
 	if (State[1].x != 0 || State[1].y != 0)
 	{
-		vec3 eye = normalize((gl_ModelViewMatrix * gl_Vertex).xyz);
+		vec3 eye = normalize(eyePosition.xyz);
 		if (State[1].x != 0)
 			tex0 = SphereMap(tex0, eye, normal);
 		if (State[1].y != 0)
 			tex1 = SphereMap(tex1, eye, normal);
 	}
-	vTex0 = gl_TextureMatrix[0] * tex0;
-	vTex1 = gl_TextureMatrix[1] * tex1;
+	vTex0 = TextureMatrix[0] * tex0;
+	vTex1 = TextureMatrix[1] * tex1;
 }
