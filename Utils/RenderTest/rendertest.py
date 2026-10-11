@@ -109,6 +109,29 @@ def make_character(root):
         shutil.copy(char / "model.txt", char / anim / "anim.txt")
 
 
+def primary_video_driver_name():
+    """What the game's GetPrimaryVideoName() returns on Windows."""
+    import ctypes
+    from ctypes import wintypes
+
+    class DISPLAY_DEVICEA(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("DeviceName", ctypes.c_char * 32),
+                    ("DeviceString", ctypes.c_char * 128),
+                    ("StateFlags", wintypes.DWORD),
+                    ("DeviceID", ctypes.c_char * 128),
+                    ("DeviceKey", ctypes.c_char * 128)]
+
+    DISPLAY_DEVICE_PRIMARY_DEVICE = 4
+    i = 0
+    while True:
+        dd = DISPLAY_DEVICEA(cb=ctypes.sizeof(DISPLAY_DEVICEA))
+        if not ctypes.windll.user32.EnumDisplayDevicesA(None, i, ctypes.byref(dd), 0):
+            return ""
+        if dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE:
+            return dd.DeviceString.decode(errors="replace").rstrip()
+        i += 1
+
+
 def setup_root(renderer, size, skip_perf):
     root = WORK / "root"
     for d in ("Themes", "Characters", "Save"):
@@ -137,16 +160,11 @@ def setup_root(renderer, size, skip_perf):
     for d in ("Logs", "Screenshots"):  # real directories, safe to clear
         shutil.rmtree(root / d, ignore_errors=True)
         (root / d).mkdir()
-    # The game replaces VideoRenderers and other video settings with per-GPU
-    # defaults whenever LastSeenVideoDriver isn't the current driver. That is
-    # "OpenGL" on Linux/macOS; on Windows it's the adapter name, which the
-    # game saves on exit, so only the first run on a machine uses defaults.
+    # The game replaces VideoRenderers, the resolution and other video
+    # settings with per-GPU defaults whenever LastSeenVideoDriver isn't the
+    # current driver name, so write that name.
     prefs = root / "Save" / "Preferences.ini"
-    driver = "OpenGL"
-    if os.name == "nt":
-        old = prefs.read_text(errors="replace") if prefs.exists() else ""
-        m = re.search(r"^LastSeenVideoDriver=(.*)$", old, re.M)
-        driver = m.group(1) if m else ""
+    driver = primary_video_driver_name() if os.name == "nt" else "OpenGL"
     width, height = size.split("x")
     prefs.write_text(PREFS.format(renderer=renderer, driver=driver,
                                   width=width, height=height))
