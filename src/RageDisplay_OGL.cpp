@@ -69,9 +69,12 @@ static int g_glVersion;
 
 static int g_iMaxTextureUnits = 0;
 
-/* We don't actually use normals (we don't turn on lighting), there's just
- * no GL_T2F_C4F_V3F. */
-static const GLenum RageSpriteVertexFormat = GL_T2F_C4F_N3F_V3F;
+/* Vertex attribute locations, bound before linking. Position must be 0. */
+static const GLuint kAttribPosition = 0;
+static const GLuint kAttribColor = 1;
+static const GLuint kAttribTexCoord = 2;
+static const GLuint kAttribNormal = 3;
+static const GLuint kAttribTextureMatrixScale = 6;  // RageModelVertex
 
 static std::map<uintptr_t, RenderTarget*> g_mapRenderTargets;
 static RenderTarget* g_pCurrentRenderTarget = nullptr;
@@ -252,7 +255,6 @@ using RenderProfiler::CountGL;
 
 struct GLStateCache {
   int active_unit;
-  int client_unit;
   int tex_enabled[NUM_TextureUnit];
   int64_t bound_tex[NUM_TextureUnit];  // -1 unknown
   int tex_mode[NUM_TextureUnit];
@@ -260,20 +262,20 @@ struct GLStateCache {
   int blend, zwrite, ztest, cull, alpha_test, lighting;
   float zbias;
   bool zbias_valid;
-  int64_t program;  // -1 unknown
-  int arr_vertex, arr_color, arr_normal, arr_tex[NUM_TextureUnit];
+  int64_t program;                       // -1 unknown
+  int attrib[8];                         // vertex attribute arrays enabled
   int64_t array_buffer, element_buffer;  // -1 unknown
 
   void Invalidate() {
-    active_unit = client_unit = -1;
+    active_unit = -1;
     for (int i = 0; i < NUM_TextureUnit; ++i) {
-      tex_enabled[i] = tex_mode[i] = texgen[i] = arr_tex[i] = -1;
+      tex_enabled[i] = tex_mode[i] = texgen[i] = -1;
       bound_tex[i] = -1;
     }
     blend = zwrite = ztest = cull = alpha_test = lighting = -1;
     zbias_valid = false;
     program = -1;
-    arr_vertex = arr_color = arr_normal = -1;
+    std::fill(std::begin(attrib), std::end(attrib), -1);
     array_buffer = element_buffer = -1;
   }
 };
@@ -306,34 +308,17 @@ void CacheActiveUnit(int unit) {
   g_cache.active_unit = unit;
 }
 
-void CacheClientUnit(int unit) {
-  if (g_cache.client_unit == unit) {
-    return;
-  }
-  CountGL(RenderProfiler::kGLVertexSetup);
-  glClientActiveTexture(enum_add2(GL_TEXTURE0, unit));
-  g_cache.client_unit = unit;
-}
-
-void CacheClientArray(GLenum array, int& cached, bool on) {
-  if (cached == static_cast<int>(on)) {
+void CacheAttribArray(GLuint index, bool on) {
+  if (g_cache.attrib[index] == static_cast<int>(on)) {
     return;
   }
   CountGL(RenderProfiler::kGLVertexSetup);
   if (on) {
-    glEnableClientState(array);
+    glEnableVertexAttribArray(index);
   } else {
-    glDisableClientState(array);
+    glDisableVertexAttribArray(index);
   }
-  cached = on;
-}
-
-void CacheTexCoordArray(int unit, bool on) {
-  if (g_cache.arr_tex[unit] == static_cast<int>(on)) {
-    return;
-  }
-  CacheClientUnit(unit);
-  CacheClientArray(GL_TEXTURE_COORD_ARRAY, g_cache.arr_tex[unit], on);
+  g_cache.attrib[index] = on;
 }
 
 // Binds on the active unit, like glBindTexture.
@@ -383,23 +368,6 @@ void CacheUseProgram(GLuint program) {
   CountGL(RenderProfiler::kGLOther);
   glUseProgram(program);
   g_cache.program = program;
-}
-
-// True if lighting or texgen is (or may be) on; avoids glGet when known.
-bool NeedsNormals() {
-  if (g_cache.lighting == 1) {
-    return true;
-  }
-  int unit = g_cache.active_unit;
-  if (g_cache.lighting == 0 && unit >= 0 && g_cache.texgen[unit] >= 0) {
-    return g_cache.texgen[unit] == 1;
-  }
-  CountGL(RenderProfiler::kGLGet, 3);
-  GLboolean bLighting, bTextureGenS, bTextureGenT;
-  glGetBooleanv(GL_LIGHTING, &bLighting);
-  glGetBooleanv(GL_TEXTURE_GEN_S, &bTextureGenS);
-  glGetBooleanv(GL_TEXTURE_GEN_T, &bTextureGenT);
-  return bLighting || bTextureGenS || bTextureGenT;
 }
 
 /* Bumped when TryVideoMode creates a new GL context; buffers made in the old
@@ -541,6 +509,10 @@ FixedFunctionState& FF() {
     ff.modelview_serial = NextUniformSerial();
     ff.texture_serial = NextUniformSerial();
     ff.lighting_serial = NextUniformSerial();
+    // Generic attributes default to (0,0,0,1); give Color and Normal the
+    // defaults of the built-ins they replace.
+    glVertexAttrib4f(kAttribColor, 1, 1, 1, 1);
+    glVertexAttrib3f(kAttribNormal, 0, 0, 1);
   }
   return g_ff_state;
 }
@@ -692,10 +664,6 @@ GLuint CompileShader(
   return hShader;
 }
 
-/* Vertex attribute for RageModelVertex::TextureMatrixScale. Bound before
- * linking; 6 isn't aliased by NVIDIA's conventional attributes. */
-const GLuint kAttribTextureMatrixScale = 6;
-
 /* Links Data/Shaders/GLSL/<sVert> and <sFrag> into a program; 0 on failure. */
 GLuint LoadProgram(const std::string& sVert, const std::string& sFrag) {
   const std::string sDir = "Data/Shaders/GLSL/";
@@ -706,6 +674,10 @@ GLuint LoadProgram(const std::string& sVert, const std::string& sFrag) {
     hProgram = glCreateProgram();
     glAttachShader(hProgram, hVert);
     glAttachShader(hProgram, hFrag);
+    glBindAttribLocation(hProgram, kAttribPosition, "Position");
+    glBindAttribLocation(hProgram, kAttribColor, "Color");
+    glBindAttribLocation(hProgram, kAttribTexCoord, "TexCoord");
+    glBindAttribLocation(hProgram, kAttribNormal, "Normal");
     glBindAttribLocation(
         hProgram, kAttribTextureMatrixScale, "TextureMatrixScale");
     glLinkProgram(hProgram);
@@ -1251,37 +1223,20 @@ ActualVideoModeParams RageDisplay_Legacy::GetActualVideoModeParams() const {
   return g_pWind->GetActualVideoModeParams();
 }
 
-// Points the client arrays at v. Arrays are only enabled/disabled on change.
+// Points the vertex attributes at sprite vertices in the bound buffer.
 static void SetVertexArrays(
-    const void* pos, GLsizei pos_stride, const void* color, GLenum color_type,
-    GLsizei color_stride, const void* tex, GLsizei tex_stride,
-    const void* normal, GLsizei normal_stride) {
+    const void* pos, const void* color, GLint color_size, const void* tex,
+    const void* normal, GLsizei stride) {
   CountGL(RenderProfiler::kGLVertexSetup, 4);
-  CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
-  glVertexPointer(3, GL_FLOAT, pos_stride, pos);
-
-  CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, true);
-  glColorPointer(
-      color_type == GL_BGRA ? GL_BGRA : 4, GL_UNSIGNED_BYTE, color_stride,
-      color);
-
-  CacheTexCoordArray(0, true);
-  CacheClientUnit(0);
-  glTexCoordPointer(2, GL_FLOAT, tex_stride, tex);
-
-  // Unit 2's coordinates only matter if it can sample; a disabled array
-  // must not keep pointing at a previous draw's (freed) vertices.
-  if (g_cache.tex_enabled[TextureUnit_2] != 0) {
-    CacheTexCoordArray(TextureUnit_2, true);
-    CacheClientUnit(TextureUnit_2);
-    CountGL(RenderProfiler::kGLVertexSetup);
-    glTexCoordPointer(2, GL_FLOAT, tex_stride, tex);
-  } else {
-    CacheTexCoordArray(TextureUnit_2, false);
-  }
-
-  CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, true);
-  glNormalPointer(GL_FLOAT, normal_stride, normal);
+  CacheAttribArray(kAttribPosition, true);
+  glVertexAttribPointer(kAttribPosition, 3, GL_FLOAT, GL_FALSE, stride, pos);
+  CacheAttribArray(kAttribColor, true);
+  glVertexAttribPointer(
+      kAttribColor, color_size, GL_UNSIGNED_BYTE, GL_TRUE, stride, color);
+  CacheAttribArray(kAttribTexCoord, true);
+  glVertexAttribPointer(kAttribTexCoord, 2, GL_FLOAT, GL_FALSE, stride, tex);
+  CacheAttribArray(kAttribNormal, true);
+  glVertexAttribPointer(kAttribNormal, 3, GL_FLOAT, GL_FALSE, stride, normal);
 }
 
 // Uploads v to the stream VBO and points the arrays at it.
@@ -1302,10 +1257,11 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   // In a bound buffer, the array "pointers" are byte offsets into it.
   const char* base = reinterpret_cast<const char*>(
       StreamUpload(v, GLsizeiptr(iNumVerts) * stride));
+  // GL_BGRA as the size reads RageVColor's b, g, r, a order.
   SetVertexArrays(
-      base + offsetof(RageSpriteVertex, p), stride,
-      base + offsetof(RageSpriteVertex, c), bBGRA ? GL_BGRA : GL_RGBA, stride,
-      base + offsetof(RageSpriteVertex, t), stride,
+      base + offsetof(RageSpriteVertex, p),
+      base + offsetof(RageSpriteVertex, c), bBGRA ? GL_BGRA : 4,
+      base + offsetof(RageSpriteVertex, t),
       base + offsetof(RageSpriteVertex, n), stride);
 }
 
@@ -1691,33 +1647,29 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
   }
 
   CountGL(RenderProfiler::kGLVertexSetup, 2);
-  CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
+  CacheAttribArray(kAttribPosition, true);
   CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, m_nPositions);
-  glVertexPointer(3, GL_FLOAT, 0, nullptr);
-  DebugAssertNoGLError();
+  glVertexAttribPointer(kAttribPosition, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-  CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, false);
+  // No color array: Color is the current value SetMaterial sets.
+  CacheAttribArray(kAttribColor, false);
 
-  // Unit 2's array may still point into the sprite stream buffer, with the
-  // sprite stride; mesh indices would read past what was written there.
-  CacheTexCoordArray(TextureUnit_2, false);
-  CacheTexCoordArray(0, true);
-  CacheClientUnit(0);
+  CacheAttribArray(kAttribTexCoord, true);
   CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, m_nTextureCoords);
-  glTexCoordPointer(2, GL_FLOAT, 0, nullptr);
-  DebugAssertNoGLError();
+  glVertexAttribPointer(kAttribTexCoord, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-  // TRICKY:  Don't bind and send normals if lighting is disabled.  This
-  // will save some effort transforming these values.
-  if (NeedsNormals()) {
+  // TRICKY:  Don't bind and send normals unless something uses them: lighting,
+  // sphere mapping, or a program of its own (cel shading).
+  const FixedFunctionState& ff = FF();
+  if (ff.lighting || ff.texgen[0] || ff.texgen[1] || ff.program != 0) {
     CountGL(RenderProfiler::kGLVertexSetup);
-    CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, true);
+    CacheAttribArray(kAttribNormal, true);
     CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, m_nNormals);
-    glNormalPointer(GL_FLOAT, 0, nullptr);
-    DebugAssertNoGLError();
+    glVertexAttribPointer(kAttribNormal, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
   } else {
-    CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, false);
+    CacheAttribArray(kAttribNormal, false);
   }
+  DebugAssertNoGLError();
 
   if (meshInfo.m_bNeedsTextureMatrixScale) {
     glEnableVertexAttribArray(kAttribTextureMatrixScale);
@@ -2320,7 +2272,7 @@ void RageDisplay_Legacy::SetMaterial(
     c.g += emissive.g + ambient.g;
     c.b += emissive.b + ambient.b;
     RenderProfiler::CountGL(RenderProfiler::kGLLighting);
-    glColor4fv(c);
+    glVertexAttrib4fv(kAttribColor, c);
   }
 }
 

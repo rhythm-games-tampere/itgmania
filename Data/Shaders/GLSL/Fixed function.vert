@@ -1,6 +1,12 @@
 // Stands in for the fixed-function pipeline (RageDisplay_OGL.cpp,
 // UseDrawProgram), and is the vertex stage of the effect mode shaders.
-// Vertex inputs are still the GL built-ins.
+
+// Vertex inputs, bound to fixed locations by LoadProgram. Both texture
+// units use TexCoord.
+attribute vec4 Position;
+attribute vec4 Color;
+attribute vec4 TexCoord;
+attribute vec3 Normal;
 
 // [1].x, [1].y: sphere map texgen on texture units 1 and 2
 // [1].z: lighting (0 off, 1 on without lights, 2 on with light 0)
@@ -47,22 +53,22 @@ void main(void)
 	{
 		// What the old "Texture matrix scaling" shader did: no lighting
 		// (a known bug, kept so models look the same) and no sphere map.
-		gl_Position = ProjectionMatrix * (ModelViewMatrix * gl_Vertex);
-		vec4 scaled = TextureMatrix[0] * gl_MultiTexCoord0;
+		gl_Position = ProjectionMatrix * (ModelViewMatrix * Position);
+		vec4 scaled = TextureMatrix[0] * TexCoord;
 		vTex0 = scaled * TextureMatrixScale +
-			gl_MultiTexCoord0 * (vec4(1.0) - TextureMatrixScale);
-		vTex1 = TextureMatrix[1] * gl_MultiTexCoord1;
-		vColor = clamp(gl_Color, 0.0, 1.0);
+			TexCoord * (vec4(1.0) - TextureMatrixScale);
+		vTex1 = TextureMatrix[1] * TexCoord;
+		vColor = clamp(Color, 0.0, 1.0);
 		return;
 	}
 
-	vec4 eyePosition = ModelViewMatrix * gl_Vertex;
+	vec4 eyePosition = ModelViewMatrix * Position;
 	gl_Position = ProjectionMatrix * eyePosition;
 
 	// GL_NORMALIZE is off, so fixed function uses the normal unnormalized.
-	vec3 normal = NormalMatrix * gl_Normal;
+	vec3 normal = NormalMatrix * Normal;
 
-	vec4 color = gl_Color;
+	vec4 color = Color;
 	if (State[1].z != 0)
 	{
 		// Emission + material ambient * light model ambient
@@ -88,8 +94,8 @@ void main(void)
 	// Fixed function clamps vertex colors (glColor can exceed 1).
 	vColor = clamp(color, 0.0, 1.0);
 
-	vec4 tex0 = gl_MultiTexCoord0;
-	vec4 tex1 = gl_MultiTexCoord1;
+	vec4 tex0 = TexCoord;
+	vec4 tex1 = TexCoord;
 	if (State[1].x != 0 || State[1].y != 0)
 	{
 		vec3 eye = normalize(eyePosition.xyz);
