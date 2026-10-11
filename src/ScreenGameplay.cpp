@@ -60,6 +60,7 @@
 #include "RageInputDevice.h"
 #include "RageLog.h"
 #include "RageSoundManager.h"
+#include "RageUtil/RandomNumbers.h"
 #include "RageSoundReader.h"
 #include "RageThreads.h"
 #include "RageTimer.h"
@@ -138,6 +139,11 @@ AutoScreenMessage(SM_BattleTrickLevel3);
 static Preference<bool> g_bCenter1Player("Center1Player", false);
 static Preference<bool> g_bShowLyrics("ShowLyrics", true);
 static Preference<bool> g_bEasterEggs("EasterEggs", true);
+// For reproducible screenshots (Utils/RenderTest): song time advances by the
+// frame delta instead of following the audio clock, and the RNG is reseeded
+// at the start of gameplay. Use with ConstantUpdateDeltaSeconds. The music
+// drifts out of sync, so never enable this for real play.
+static Preference<bool> g_bFrameLockedSongTime("FrameLockedSongTime", false);
 
 PlayerInfo::PlayerInfo()
     : m_pn(PLAYER_INVALID),
@@ -1664,6 +1670,7 @@ void ScreenGameplay::StartPlayingSong(
 
     /* Make sure GAMESTATE->m_fMusicSeconds is set up. */
     GAMESTATE->m_Position.m_fMusicSeconds = -5000;
+    m_fFrameLockedSeconds = p.m_StartSecond;
     UpdateSongPosition(0);
   }
 
@@ -1756,7 +1763,16 @@ void ScreenGameplay::UpdateSongPosition(float fDeltaTime) {
   }
 
   RageTimer tm;
-  const float fSeconds = m_pSoundMusic->GetPositionSeconds(&tm);
+  float fSeconds;
+  if (g_bFrameLockedSongTime) {
+    // ponytail: still gated on IsPlaying(), so if frames run slower than
+    // real time the audio ends first and song time freezes. Run uncapped.
+    m_fFrameLockedSeconds +=
+        fDeltaTime * GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate;
+    fSeconds = m_fFrameLockedSeconds;
+  } else {
+    fSeconds = m_pSoundMusic->GetPositionSeconds(&tm);
+  }
   GAMESTATE->UpdateSongPosition(
       fSeconds, GAMESTATE->m_pCurSong->m_SongTiming, tm);
 }
@@ -1768,6 +1784,9 @@ void ScreenGameplay::BeginScreen() {
 
   ScreenWithMenuElements::BeginScreen();
   RenderProfiler::Start();
+  if (g_bFrameLockedSongTime) {
+    g_RandomNumberGenerator.seed(1);
+  }
 
   SOUND->PlayOnceFromAnnouncer("gameplay intro");  // crowd cheer
 

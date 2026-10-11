@@ -352,6 +352,7 @@ class ScreenGameplay : public ScreenWithMenuElements {
 
   GameplayAssist m_GameplayAssist;
   RageSound* m_pSoundMusic;
+  float m_fFrameLockedSeconds = 0;  // see FrameLockedSongTime
 
   BeginnerHelper m_BeginnerHelper;
 
