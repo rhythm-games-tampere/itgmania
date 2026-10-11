@@ -1,4 +1,6 @@
 uniform sampler2D Texture1;
+// [0].z: alpha test (see Fixed function.frag)
+uniform ivec4 State[2];
 
 in vec4 texCoords;
 in vec4 vertexColor;
@@ -23,5 +25,8 @@ float SampleDistance(vec2 tc) {
 void main(void)
 {
 	float dfValue = SampleDistance(texCoords.st);
-	FragColor = vec4(vertexColor.rgb, vertexColor.a * dfValue);
+	float alpha = vertexColor.a * dfValue;
+	if (State[0].z != 0 && !(alpha > 0.00390625))
+		discard;
+	FragColor = vec4(vertexColor.rgb, alpha);
 }

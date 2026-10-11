@@ -255,11 +255,8 @@ using RenderProfiler::CountGL;
 
 struct GLStateCache {
   int active_unit;
-  int tex_enabled[NUM_TextureUnit];
   int64_t bound_tex[NUM_TextureUnit];  // -1 unknown
-  int tex_mode[NUM_TextureUnit];
-  int texgen[NUM_TextureUnit];
-  int blend, zwrite, ztest, cull, alpha_test, lighting;
+  int blend, zwrite, ztest, cull;
   float zbias;
   bool zbias_valid;
   int64_t program;                       // -1 unknown
@@ -269,10 +266,9 @@ struct GLStateCache {
   void Invalidate() {
     active_unit = -1;
     for (int i = 0; i < NUM_TextureUnit; ++i) {
-      tex_enabled[i] = tex_mode[i] = texgen[i] = -1;
       bound_tex[i] = -1;
     }
-    blend = zwrite = ztest = cull = alpha_test = lighting = -1;
+    blend = zwrite = ztest = cull = -1;
     zbias_valid = false;
     program = -1;
     std::fill(std::begin(attrib), std::end(attrib), -1);
@@ -336,20 +332,6 @@ void CacheBindTexture(GLuint id) {
       b = -1;
     }
   }
-}
-
-void CacheEnable(
-    GLenum cap, int& cached, bool on, RenderProfiler::GLStat stat) {
-  if (cached == static_cast<int>(on)) {
-    return;
-  }
-  CountGL(stat);
-  if (on) {
-    glEnable(cap);
-  } else {
-    glDisable(cap);
-  }
-  cached = on;
 }
 
 void CacheBindBuffer(GLenum target, int64_t& cached, GLuint id) {
@@ -459,10 +441,9 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size) {
   return at;
 }
 
-/* What the RageDisplay setters last asked for. Every fixed-function change
- * goes through them, so this is also what GL holds; unlike g_cache it is never
- * "unknown", and the shader pipeline reads it without glGet. thread_local and
- * reset to GL's defaults per context, like g_stream. */
+/* The fixed-function state the setters record and the shaders implement. It
+ * is never "unknown" like g_cache, so draws read it without glGet.
+ * thread_local and reset to GL's defaults per context, like g_stream. */
 struct FixedFunctionState {
   int generation = -1;
   GLuint program = 0;  // from SetEffectMode / SetCelShaded; 0 for none
@@ -961,7 +942,7 @@ void SetupExtensions() {
   glewInit();
 #endif
 
-  glGetIntegerv(GL_MAX_TEXTURE_UNITS, (GLint*)&g_iMaxTextureUnits);
+  glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, (GLint*)&g_iMaxTextureUnits);
 
   CheckReversePackedPixels();
 }
@@ -1933,10 +1914,6 @@ void RageDisplay_Legacy::SetTexture(TextureUnit tu, uintptr_t iTexture) {
     return;
   }
   FF().tex_enabled[tu] = iTexture != 0;
-
-  CacheEnable(
-      GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0,
-      RenderProfiler::kGLTexture);
   if (iTexture) {
     CacheBindTexture(static_cast<GLuint>(iTexture));
   }
@@ -1948,38 +1925,7 @@ void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
   }
   if (tm == TextureMode_Modulate || tm == TextureMode_Add ||
       tm == TextureMode_Glow) {
-    FF().tex_mode[tu] = tm;  // anything else leaves GL's env mode as it was
-  }
-
-  if (g_cache.tex_mode[tu] == tm) {
-    return;
-  }
-  g_cache.tex_mode[tu] = tm;
-  RenderProfiler::CountGL(
-      RenderProfiler::kGLTexture, tm == TextureMode_Glow ? 8 : 1);
-  switch (tm) {
-    case TextureMode_Modulate:
-      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-      break;
-    case TextureMode_Add:
-      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_ADD);
-      break;
-    case TextureMode_Glow:
-      // glowmode,whiten:
-      // Source color is the diffuse color only:
-      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
-      glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_REPLACE);
-      glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB, GL_PRIMARY_COLOR);
-
-      // Source alpha is texture alpha * diffuse alpha:
-      glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA, GL_MODULATE);
-      glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, GL_SRC_ALPHA);
-      glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_ALPHA, GL_PRIMARY_COLOR);
-      glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_ALPHA, GL_SRC_ALPHA);
-      glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_ALPHA, GL_TEXTURE);
-      break;
-    default:
-      break;
+    FF().tex_mode[tu] = tm;  // anything else leaves the mode as it was
   }
 }
 
@@ -2310,10 +2256,7 @@ void RageDisplay_Legacy::SetMaterial(
   }
 }
 
-void RageDisplay_Legacy::SetLighting(bool b) {
-  FF().lighting = b;
-  CacheEnable(GL_LIGHTING, g_cache.lighting, b, RenderProfiler::kGLLighting);
-}
+void RageDisplay_Legacy::SetLighting(bool b) { FF().lighting = b; }
 
 void RageDisplay_Legacy::SetLightOff(int index) {
   FF().lights &= ~(1 << index);
@@ -2891,25 +2834,8 @@ std::string RageDisplay_Legacy::GetTextureDiagnostics(
   return std::string();
 }
 
-/*
- * XXX: Things like this only have to be set once per context - making
- * SetDefault call These kinds of functions is wasteful. -Colby
- */
-void RageDisplay_Legacy::SetAlphaTest(bool b) {
-  FF().alpha_test = b;
-  if (g_cache.alpha_test == static_cast<int>(b)) {
-    return;
-  }
-  g_cache.alpha_test = b;
-  RenderProfiler::CountGL(RenderProfiler::kGLAlphaTest, 2);
-  // Previously this was 0.01, rather than 0x01.
-  glAlphaFunc(GL_GREATER, 0.00390625 /* 1/256 */);
-  if (b) {
-    glEnable(GL_ALPHA_TEST);
-  } else {
-    glDisable(GL_ALPHA_TEST);
-  }
-}
+// The shaders discard alpha <= 1/256 while this is on.
+void RageDisplay_Legacy::SetAlphaTest(bool b) { FF().alpha_test = b; }
 
 /*
  * Although we pair texture formats (eg. GL_RGB8) and surface formats
@@ -2963,20 +2889,6 @@ void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
   }
 
   FF().texgen[tu] = b;
-  if (g_cache.texgen[tu] == static_cast<int>(b)) {
-    return;
-  }
-  g_cache.texgen[tu] = b;
-  RenderProfiler::CountGL(RenderProfiler::kGLTexture, b ? 4 : 2);
-  if (b) {
-    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-    glEnable(GL_TEXTURE_GEN_S);
-    glEnable(GL_TEXTURE_GEN_T);
-  } else {
-    glDisable(GL_TEXTURE_GEN_S);
-    glDisable(GL_TEXTURE_GEN_T);
-  }
 }
 
 GLint iCelTexture1, iCelTexture2 = 0;

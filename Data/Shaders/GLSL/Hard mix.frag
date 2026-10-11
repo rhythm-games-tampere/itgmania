@@ -1,5 +1,7 @@
 uniform sampler2D Texture1;
 uniform sampler2D Texture2;
+// [0].z: alpha test (see Fixed function.frag)
+uniform ivec4 State[2];
 
 // From Fixed function.vert.
 in vec4 vColor;
@@ -65,6 +67,8 @@ void main(void)
 
 	ret.rgb /= ret.a;
 
+	if (State[0].z != 0 && !(ret.a > 0.00390625))
+		discard;
 	FragColor = ret;
 	return;
 }
