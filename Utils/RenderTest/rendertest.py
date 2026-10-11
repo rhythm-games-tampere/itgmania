@@ -3,7 +3,7 @@
 (Docs/Devdocs/RenderingModernizationPlan.md, Phase 0).
 
   rendertest.py run [--out DIR] [--renderer opengl|d3d] [--size WxH] [--no-perf]
-                    [--pref KEY=VALUE ...]
+                    [--pref KEY=VALUE ...] [--theme DIR]
   rendertest.py compare BASELINE_DIR NEW_DIR
 
 `run` builds an isolated portable install under Build/RenderTest/root
@@ -13,6 +13,11 @@ lets the theme drive the game: static scenes, two autoplay gameplay runs and
 one full-song run with RenderProfiler on. The game exits by itself. Results
 land in DIR (default Build/RenderTest/runs/<time>): one PNG per shot,
 perf.json/perf.txt from RenderProfiler and the game log.
+
+With --theme DIR (e.g. "Themes/Simply Love"), the RenderTest theme is
+replaced by that theme, and ThemeDriver/ScreenSystemLayer aux.lua steps it
+through a few screens (title, music select, options, gameplay, evaluation)
+instead. Written for Simply Love.
 
 Time is frame-locked (ConstantUpdateDeltaSeconds + FrameLockedSongTime), so
 two runs of the same build should produce identical images.
@@ -133,7 +138,29 @@ def primary_video_driver_name():
         i += 1
 
 
-def setup_root(renderer, size, skip_perf, extra_prefs=()):
+def setup_theme(root, theme):
+    """A copy of THEME with the driver added: junctions to everything but
+    BGAnimations, which is copied so ThemeDriver's files can go next to the
+    theme's own. Returns the theme name to select."""
+    src = Path(theme)
+    if not src.is_absolute():
+        src = REPO / src
+    dst = root / "Themes" / ("RenderTest-" + src.name)
+    dst.mkdir(exist_ok=True)
+    for p in src.iterdir():
+        if p.name == "BGAnimations":
+            shutil.rmtree(dst / p.name, ignore_errors=True)  # our real copy
+            shutil.copytree(p, dst / p.name)
+            for f in (HERE / "ThemeDriver").iterdir():
+                shutil.copy(f, dst / p.name / f.name)
+        elif p.is_dir():
+            link(p, dst / p.name)
+        else:
+            shutil.copy(p, dst / p.name)
+    return dst.name
+
+
+def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None):
     root = WORK / "root"
     for d in ("Themes", "Characters", "Save"):
         (root / d).mkdir(parents=True, exist_ok=True)
@@ -169,6 +196,8 @@ def setup_root(renderer, size, skip_perf, extra_prefs=()):
     width, height = size.split("x")
     text = PREFS.format(renderer=renderer, driver=driver,
                         width=width, height=height)
+    if theme:
+        text = text.replace("Theme=RenderTest", "Theme=" + setup_theme(root, theme))
     # Extra [Options] lines from --pref go right after the section header.
     extra = "".join(p + "\n" for p in extra_prefs)
     text = text.replace("[Options]\n", "[Options]\n" + extra, 1)
@@ -180,7 +209,8 @@ def setup_root(renderer, size, skip_perf, extra_prefs=()):
 
 def run(args):
     out = Path(args.out) if args.out else WORK / "runs" / time.strftime("%Y%m%d-%H%M%S")
-    root, exe = setup_root(args.renderer, args.size, args.no_perf, args.pref)
+    root, exe = setup_root(args.renderer, args.size, args.no_perf, args.pref,
+                           args.theme)
     print(f"Running {exe} ...")
     log = root / "Logs" / "log.txt"
     t = time.time()
@@ -320,6 +350,8 @@ def main():
                    help="skip the full-song RenderProfiler run")
     r.add_argument("--pref", action="append", default=[], metavar="KEY=VALUE",
                    help="extra [Options] preference, e.g. CelShadeModels=1")
+    r.add_argument("--theme", metavar="DIR",
+                   help="drive this theme instead of RenderTest (Simply Love)")
     c = sub.add_parser("compare")
     c.add_argument("baseline")
     c.add_argument("new")
