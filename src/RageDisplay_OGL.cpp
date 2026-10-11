@@ -57,7 +57,6 @@ using namespace RageDisplay_Legacy_Helpers;
 //
 
 static bool g_bReversePackedPixelsWorks = true;
-static bool g_bColorIndexTableWorks = true;
 
 /* OpenGL system information that generally doesn't change at runtime. */
 
@@ -186,10 +185,11 @@ struct GLPixFmtInfo_t {
         GL_UNSIGNED_BYTE,
     },
     {
-        /* Paletted */
-        GL_COLOR_INDEX8_EXT,
-        GL_COLOR_INDEX,
-        GL_UNSIGNED_BYTE,
+        /* Paletted: not supported; paletted surfaces are expanded to RGBA8
+         * by GetImgPixelFormat. */
+        0,
+        0,
+        0,
     },
     {
         /* B8G8R8 */
@@ -782,100 +782,6 @@ void RageDisplay_Legacy::GetDisplaySpecs(DisplaySpecs& out) const {
   g_pWind->GetDisplaySpecs(out);
 }
 
-static void CheckPalettedTextures() {
-  std::string sError;
-  do {
-    if (!GLEW_EXT_paletted_texture) {
-      sError = "GL_EXT_paletted_texture missing";
-      break;
-    }
-
-    /* Check to see if paletted textures really work. */
-    GLenum glTexFormat = g_GLPixFmtInfo[RagePixelFormat_PAL].internalfmt;
-    GLenum glImageFormat = g_GLPixFmtInfo[RagePixelFormat_PAL].format;
-    GLenum glImageType = g_GLPixFmtInfo[RagePixelFormat_PAL].type;
-
-    int iBits = 8;
-
-    FlushGLErrors();
-#define GL_CHECK_ERROR(f)                                               \
-  {                                                                     \
-    GLenum glError = glGetError();                                      \
-    if (glError != GL_NO_ERROR) {                                       \
-      sError = ssprintf(f " failed (%s)", GLToString(glError).c_str()); \
-      break;                                                            \
-    }                                                                   \
-  }
-
-    glTexImage2D(
-        GL_PROXY_TEXTURE_2D, 0, glTexFormat, 16, 16, 0, glImageFormat,
-        glImageType, nullptr);
-    GL_CHECK_ERROR("glTexImage2D");
-
-    GLuint iFormat = 0;
-    glGetTexLevelParameteriv(
-        GL_PROXY_TEXTURE_2D, 0, GLenum(GL_TEXTURE_INTERNAL_FORMAT),
-        (GLint*)&iFormat);
-    GL_CHECK_ERROR("glGetTexLevelParameteriv(GL_TEXTURE_INTERNAL_FORMAT)");
-    if (iFormat != glTexFormat) {
-      sError = ssprintf(
-          "Expected format %s, got %s instead", GLToString(glTexFormat).c_str(),
-          GLToString(iFormat).c_str());
-      break;
-    }
-
-    GLubyte palette[256 * 4];
-    memset(palette, 0, sizeof(palette));
-    glColorTableEXT(
-        GL_PROXY_TEXTURE_2D, GL_RGBA8, 256, GL_RGBA, GL_UNSIGNED_BYTE, palette);
-    GL_CHECK_ERROR("glColorTableEXT");
-
-    GLint iSize = 0;
-    glGetTexLevelParameteriv(
-        GL_PROXY_TEXTURE_2D, 0, GLenum(GL_TEXTURE_INDEX_SIZE_EXT), &iSize);
-    GL_CHECK_ERROR("glGetTexLevelParameteriv(GL_TEXTURE_INDEX_SIZE_EXT)");
-    if (iBits > iSize || iSize > 8) {
-      sError = ssprintf(
-          "Expected %i-bit palette, got a %i-bit one instead", iBits,
-          int(iSize));
-      break;
-    }
-
-    GLint iRealWidth = 0;
-    glGetColorTableParameterivEXT(
-        GL_PROXY_TEXTURE_2D, GL_COLOR_TABLE_WIDTH, &iRealWidth);
-    GL_CHECK_ERROR("glGetColorTableParameterivEXT(GL_COLOR_TABLE_WIDTH)");
-    if (iRealWidth != 1 << iBits) {
-      sError = ssprintf(
-          "GL_COLOR_TABLE_WIDTH returned %i instead of %i", int(iRealWidth),
-          1 << iBits);
-      break;
-    }
-
-    GLint iRealFormat = 0;
-    glGetColorTableParameterivEXT(
-        GL_PROXY_TEXTURE_2D, GL_COLOR_TABLE_FORMAT, &iRealFormat);
-    GL_CHECK_ERROR("glGetColorTableParameterivEXT(GL_COLOR_TABLE_FORMAT)");
-    if (iRealFormat != GL_RGBA8) {
-      sError = ssprintf(
-          "GL_COLOR_TABLE_FORMAT returned %s instead of GL_RGBA8",
-          GLToString(iRealFormat).c_str());
-      break;
-    }
-  } while (0);
-#undef GL_CHECK_ERROR
-
-  if (sError == "") {
-    return;
-  }
-
-  /* If 8-bit palettes don't work, disable them entirely--don't trust 4-bit
-   * palettes if it can't even get 8-bit ones right. */
-  glColorTableEXT = nullptr;
-  glGetColorTableParameterivEXT = nullptr;
-  LOG->Info("Paletted textures disabled: %s.", sError.c_str());
-}
-
 static void CheckReversePackedPixels() {
   /* Try to create a texture. */
   FlushGLErrors();
@@ -908,22 +814,7 @@ void SetupExtensions() {
 
   glGetIntegerv(GL_MAX_TEXTURE_UNITS, (GLint*)&g_iMaxTextureUnits);
 
-  CheckPalettedTextures();
   CheckReversePackedPixels();
-
-  {
-    GLint iMaxTableSize = 0;
-    glGetIntegerv(GL_MAX_PIXEL_MAP_TABLE, &iMaxTableSize);
-    if (iMaxTableSize < 256) {
-      /* The minimum GL_MAX_PIXEL_MAP_TABLE is 32; if it's not at least 256,
-       * we can't fit a palette in it, so we can't send paletted data as input
-       * for a non-paletted texture. */
-      LOG->Info("GL_MAX_PIXEL_MAP_TABLE is only %d", int(iMaxTableSize));
-      g_bColorIndexTableWorks = false;
-    } else {
-      g_bColorIndexTableWorks = true;
-    }
-  }
 }
 
 bool RageDisplay_Legacy::UseOffscreenRenderTarget() {
@@ -2359,29 +2250,21 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
 }
 
 RagePixelFormat RageDisplay_Legacy::GetImgPixelFormat(
-    RageSurface*& img, bool& bFreeImg, int width, int height,
-    bool bPalettedTexture) {
+    RageSurface*& img, bool& bFreeImg, int width, int height) {
   RagePixelFormat pixfmt = FindPixelFormat(
       img->format->BitsPerPixel, img->format->Rmask, img->format->Gmask,
       img->format->Bmask, img->format->Amask);
 
-  /* If img is paletted, we're setting up a non-paletted texture, and color
-   * indexes are too small, depalettize. */
-  bool bSupported = true;
-  if (!bPalettedTexture && img->fmt.BytesPerPixel == 1 &&
-      !g_bColorIndexTableWorks) {
-    bSupported = false;
-  }
-
+  // Paletted surfaces are always expanded.
+  bool bSupported = img->fmt.BytesPerPixel != 1;
   if (pixfmt == RagePixelFormat_Invalid || !SupportsSurfaceFormat(pixfmt)) {
     bSupported = false;
   }
 
   if (!bSupported) {
-    /* The source isn't in a supported, known pixel format.  We need to convert
-     * it ourself.  Just convert it to RGBA8, and let OpenGL convert it back
-     * down to whatever the actual pixel format is.  This is a very slow code
-     * path, which should almost never be used. */
+    /* The source is paletted or isn't in a supported, known pixel format.
+     * Convert it to RGBA8 ourselves, and let OpenGL convert it to whatever
+     * the texture's format is. */
     pixfmt = RagePixelFormat_RGBA8;
     ASSERT(SupportsSurfaceFormat(pixfmt));
 
@@ -2400,52 +2283,20 @@ RagePixelFormat RageDisplay_Legacy::GetImgPixelFormat(
   return pixfmt;
 }
 
-/* If we're sending a paletted surface to a non-paletted texture, set the
- * palette. */
-void SetPixelMapForSurface(
-    int glImageFormat, int glTexFormat, const RageSurfacePalette* palette) {
-  if (glImageFormat != GL_COLOR_INDEX || glTexFormat == GL_COLOR_INDEX8_EXT) {
-    glPixelTransferi(GL_MAP_COLOR, false);
-    return;
-  }
-
-  GLushort buf[4][256];
-  memset(buf, 0, sizeof(buf));
-
-  for (int i = 0; i < palette->ncolors; ++i) {
-    buf[0][i] = SCALE(palette->colors[i].r, 0, 255, 0, 65535);
-    buf[1][i] = SCALE(palette->colors[i].g, 0, 255, 0, 65535);
-    buf[2][i] = SCALE(palette->colors[i].b, 0, 255, 0, 65535);
-    buf[3][i] = SCALE(palette->colors[i].a, 0, 255, 0, 65535);
-  }
-
-  DebugFlushGLErrors();
-  glPixelMapusv(GL_PIXEL_MAP_I_TO_R, 256, buf[0]);
-  glPixelMapusv(GL_PIXEL_MAP_I_TO_G, 256, buf[1]);
-  glPixelMapusv(GL_PIXEL_MAP_I_TO_B, 256, buf[2]);
-  glPixelMapusv(GL_PIXEL_MAP_I_TO_A, 256, buf[3]);
-  glPixelTransferi(GL_MAP_COLOR, true);
-  DebugAssertNoGLError();
-}
-
 uintptr_t RageDisplay_Legacy::CreateTexture(
     RagePixelFormat pixfmt, RageSurface* pImg, bool bGenerateMipMaps) {
   ASSERT(pixfmt < NUM_RagePixelFormat);
+  ASSERT(pixfmt != RagePixelFormat_PAL);  // SupportsTextureFormat says no
 
   /* Find the pixel format of the surface we've been given. */
   bool bFreeImg;
-  RagePixelFormat SurfacePixFmt = GetImgPixelFormat(
-      pImg, bFreeImg, pImg->w, pImg->h, pixfmt == RagePixelFormat_PAL);
+  RagePixelFormat SurfacePixFmt =
+      GetImgPixelFormat(pImg, bFreeImg, pImg->w, pImg->h);
   ASSERT(SurfacePixFmt != RagePixelFormat_Invalid);
 
   GLenum glTexFormat = g_GLPixFmtInfo[pixfmt].internalfmt;
   GLenum glImageFormat = g_GLPixFmtInfo[SurfacePixFmt].format;
   GLenum glImageType = g_GLPixFmtInfo[SurfacePixFmt].type;
-
-  /* If the image is paletted, but we're not sending it to a paletted image,
-   * set up glPixelMap. */
-  SetPixelMapForSurface(
-      glImageFormat, glTexFormat, pImg->format->palette.get());
 
   // HACK:  OpenGL 1.2 types aren't available in GLU 1.3.  Don't call GLU for
   // mip mapping if we're using an OGL 1.2 type and don't have >= GLU 1.3.
@@ -2455,7 +2306,6 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
       // OpenGL 1.1 types
       case RagePixelFormat_RGBA8:
       case RagePixelFormat_RGB8:
-      case RagePixelFormat_PAL:
       case RagePixelFormat_BGR8:
         break;
       // OpenGL 1.2 types
@@ -2495,29 +2345,6 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   glPixelStorei(
       GL_UNPACK_ROW_LENGTH, pImg->pitch / pImg->format->BytesPerPixel);
 
-  if (pixfmt == RagePixelFormat_PAL) {
-    /* The texture is paletted; set the texture palette. */
-    GLubyte palette[256 * 4];
-    memset(palette, 0, sizeof(palette));
-    int p = 0;
-    /* Copy the palette to the format OpenGL expects. */
-    for (int i = 0; i < pImg->format->palette->ncolors; ++i) {
-      palette[p++] = pImg->format->palette->colors[i].r;
-      palette[p++] = pImg->format->palette->colors[i].g;
-      palette[p++] = pImg->format->palette->colors[i].b;
-      palette[p++] = pImg->format->palette->colors[i].a;
-    }
-
-    /* Set the palette. */
-    glColorTableEXT(
-        GL_TEXTURE_2D, GL_RGBA8, 256, GL_RGBA, GL_UNSIGNED_BYTE, palette);
-
-    GLint iRealFormat = 0;
-    glGetColorTableParameterivEXT(
-        GL_TEXTURE_2D, GL_COLOR_TABLE_FORMAT, &iRealFormat);
-    ASSERT(iRealFormat == GL_RGBA8);
-  }
-
   LOG->Trace(
       "%s (format %s, %ix%i, format %s, type %s, pixfmt %i, imgpixfmt %i)",
       "glTexImage2D", GLToString(glTexFormat).c_str(), pImg->w, pImg->h,
@@ -2540,16 +2367,6 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   }
 
   DebugAssertNoGLError();
-
-  /* Sanity check: */
-  if (pixfmt == RagePixelFormat_PAL) {
-    GLint iSize = 0;
-    glGetTexLevelParameteriv(
-        GL_TEXTURE_2D, 0, GLenum(GL_TEXTURE_INDEX_SIZE_EXT), &iSize);
-    if (iSize != 8) {
-      RageException::Throw("Thought paletted textures worked, but they don't.");
-    }
-  }
 
   glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
   glFlush();
@@ -2639,24 +2456,13 @@ void RageDisplay_Legacy::UpdateTexture(
 
   bool bFreeImg;
   RagePixelFormat SurfacePixFmt =
-      GetImgPixelFormat(pImg, bFreeImg, iWidth, iHeight, false);
+      GetImgPixelFormat(pImg, bFreeImg, iWidth, iHeight);
 
   glPixelStorei(
       GL_UNPACK_ROW_LENGTH, pImg->pitch / pImg->format->BytesPerPixel);
 
   GLenum glImageFormat = g_GLPixFmtInfo[SurfacePixFmt].format;
   GLenum glImageType = g_GLPixFmtInfo[SurfacePixFmt].type;
-
-  /* If the image is paletted, but we're not sending it to a paletted image,
-   * set up glPixelMap. */
-  if (pImg->format->palette) {
-    GLenum glTexFormat = 0;
-    glGetTexLevelParameteriv(
-        GL_PROXY_TEXTURE_2D, 0, GLenum(GL_TEXTURE_INTERNAL_FORMAT),
-        (GLint*)&glTexFormat);
-    SetPixelMapForSurface(
-        glImageFormat, glTexFormat, pImg->format->palette.get());
-  }
 
   glTexSubImage2D(
       GL_TEXTURE_2D, 0, iXOffset, iYOffset, iWidth, iHeight, glImageFormat,
@@ -2988,9 +2794,10 @@ bool RageDisplay_Legacy::SupportsTextureFormat(
     return false;
   }
 
+  if (pixfmt == RagePixelFormat_PAL) {
+    return false;  // expanded to RGBA8 on upload instead
+  }
   switch (g_GLPixFmtInfo[pixfmt].format) {
-    case GL_COLOR_INDEX:
-      return glColorTableEXT && glGetColorTableParameterivEXT;
     case GL_BGR:
     case GL_BGRA:
       return !!GLEW_EXT_bgra;

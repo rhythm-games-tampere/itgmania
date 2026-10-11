@@ -13,11 +13,6 @@
 
 #include <GL/glew.h>
 
-/* Windows defines GL_EXT_paletted_texture incompletely: */
-#ifndef GL_TEXTURE_INDEX_SIZE_EXT
-#define GL_TEXTURE_INDEX_SIZE_EXT 0x80ED
-#endif
-
 /** @brief Utilities for working with the RageDisplay. */
 namespace RageDisplay_Legacy_Helpers {
 void Init();

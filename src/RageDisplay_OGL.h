@@ -131,8 +131,7 @@ class RageDisplay_Legacy : public RageDisplay {
   std::string TryVideoMode(const VideoModeParams& p, bool& bNewDeviceOut);
   RageSurface* CreateScreenshot();
   RagePixelFormat GetImgPixelFormat(
-      RageSurface*& img, bool& FreeImg, int width, int height,
-      bool bPalettedTexture);
+      RageSurface*& img, bool& FreeImg, int width, int height);
   bool SupportsSurfaceFormat(RagePixelFormat pixfmt);
 
   void SendCurrentMatrices();
