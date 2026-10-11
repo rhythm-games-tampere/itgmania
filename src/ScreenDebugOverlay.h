@@ -30,6 +30,8 @@ class ScreenDebugOverlay : public Screen {
   std::vector<std::string> m_asPages;
   int m_iCurrentPage;
   bool m_bForcedHidden;
+  // Update time skipped while hidden; applied when shown again.
+  float m_fHiddenDelta = 0;
 
   Quad m_Quad;
   BitmapText m_textHeader;

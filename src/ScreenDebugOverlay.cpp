@@ -403,13 +403,17 @@ void ScreenDebugOverlay::Update(float fDeltaTime) {
             (int)(g_fImageScaleCurrent * SCREEN_HEIGHT));
   }
 
-  Screen::Update(fDeltaTime);
-
-  this->SetVisible(g_bIsDisplayed && !m_bForcedHidden);
+  /* Hidden almost all the time, but has ~85 actors. Skip updating them while
+   * hidden and catch up when shown; this screen queues no screen messages. */
   if (!g_bIsDisplayed) {
+    m_fHiddenDelta += fDeltaTime;
+    this->SetVisible(false);
     return;
   }
+  Screen::Update(m_fHiddenDelta + fDeltaTime);
+  m_fHiddenDelta = 0;
 
+  this->SetVisible(!m_bForcedHidden);
   UpdateText();
 }
 
