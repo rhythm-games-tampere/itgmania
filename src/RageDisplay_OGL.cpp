@@ -447,6 +447,13 @@ bool NeedsNormals() {
  * one are gone. */
 int g_iContextGeneration = 0;
 
+/* An element buffer holding a repeating index pattern, grown when a draw
+ * needs more pieces than it has. */
+struct PatternIndices {
+  GLuint ibo = 0;
+  int pieces = 0;
+};
+
 /* GPU buffers for immediate (sprite) draws. thread_local like g_cache: each
  * rendering thread has its own context, write offset and buffers. */
 struct StreamBuffers {
@@ -461,8 +468,7 @@ struct StreamBuffers {
   // Without buffer storage, or for draws bigger than a quarter: respecified
   // with glBufferData every draw, which the driver orphans.
   GLuint dynamic = 0;
-  GLuint symmetric_ibo = 0;  // DrawSymmetricQuadStrip's index pattern
-  int symmetric_pieces = 0;
+  PatternIndices quads, quad_strip, symmetric_strip;
 };
 thread_local StreamBuffers g_stream;
 constexpr GLsizeiptr kStreamRingSize = 4 << 20;
@@ -524,6 +530,28 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size) {
   g_stream.offset = at + size;
   CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.ring);
   return at;
+}
+
+/* Binds p, first regrowing it to cover iPieces pieces of N indices each;
+ * piece(i, out) writes the N indices of piece i. */
+template <int N, class Piece>
+void BindPatternIndices(PatternIndices& p, int iPieces, Piece piece) {
+  CheckStreamGeneration();
+  if (!p.ibo) {
+    glGenBuffers(1, &p.ibo);
+  }
+  CacheBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer, p.ibo);
+  if (iPieces <= p.pieces) {
+    return;
+  }
+  std::vector<GLuint> vIndices(size_t(iPieces) * N);
+  for (int i = 0; i < iPieces; ++i) {
+    piece(GLuint(i), &vIndices[size_t(i) * N]);
+  }
+  glBufferData(
+      GL_ELEMENT_ARRAY_BUFFER, vIndices.size() * sizeof(GLuint),
+      vIndices.data(), GL_STATIC_DRAW);
+  p.pieces = iPieces;
 }
 }  // namespace
 
@@ -1626,7 +1654,14 @@ void RageDisplay_Legacy::DrawQuadsInternal(
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
-  glDrawArrays(GL_QUADS, 0, iNumVerts);
+  // Two triangles per quad, split along 0-2 like the D3D renderer.
+  const int iNumQuads = iNumVerts / 4;
+  BindPatternIndices<6>(g_stream.quads, iNumQuads, [](GLuint i, GLuint* o) {
+    const GLuint b = i * 4;
+    o[0] = b + 0, o[1] = b + 1, o[2] = b + 2;
+    o[3] = b + 2, o[4] = b + 3, o[5] = b + 0;
+  });
+  glDrawElements(GL_TRIANGLES, iNumQuads * 6, GL_UNSIGNED_INT, nullptr);
 }
 
 void RageDisplay_Legacy::DrawQuadStripInternal(
@@ -1634,7 +1669,17 @@ void RageDisplay_Legacy::DrawQuadStripInternal(
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
-  glDrawArrays(GL_QUAD_STRIP, 0, iNumVerts);
+  // Quad i is the polygon (2i, 2i+1, 2i+3, 2i+2), split along its first
+  // vertex like GL_QUADS. A plain triangle strip would split along 1-2 (as
+  // the D3D renderer does), which interpolates colors differently.
+  const int iNumQuads = (iNumVerts - 2) / 2;
+  BindPatternIndices<6>(
+      g_stream.quad_strip, iNumQuads, [](GLuint i, GLuint* o) {
+        const GLuint b = i * 2;
+        o[0] = b + 0, o[1] = b + 1, o[2] = b + 3;
+        o[3] = b + 0, o[4] = b + 3, o[5] = b + 2;
+      });
+  glDrawElements(GL_TRIANGLES, iNumQuads * 6, GL_UNSIGNED_INT, nullptr);
 }
 
 void RageDisplay_Legacy::DrawSymmetricQuadStripInternal(
@@ -1643,44 +1688,19 @@ void RageDisplay_Legacy::DrawSymmetricQuadStripInternal(
   int iNumTriangles = iNumPieces * 4;
   int iNumIndices = iNumTriangles * 3;
 
-  // The index pattern only depends on the piece count, so it lives in an
-  // element buffer that grows when a longer strip comes along.
-  CheckStreamGeneration();
-  if (iNumPieces > g_stream.symmetric_pieces) {
-    std::vector<uint16_t> vIndices(iNumIndices);
-    for (uint16_t i = 0; i < (uint16_t)iNumPieces; i++) {
-      // { 1, 3, 0 } { 1, 4, 3 } { 1, 5, 4 } { 1, 2, 5 }
-      vIndices[i * 12 + 0] = i * 3 + 1;
-      vIndices[i * 12 + 1] = i * 3 + 3;
-      vIndices[i * 12 + 2] = i * 3 + 0;
-      vIndices[i * 12 + 3] = i * 3 + 1;
-      vIndices[i * 12 + 4] = i * 3 + 4;
-      vIndices[i * 12 + 5] = i * 3 + 3;
-      vIndices[i * 12 + 6] = i * 3 + 1;
-      vIndices[i * 12 + 7] = i * 3 + 5;
-      vIndices[i * 12 + 8] = i * 3 + 4;
-      vIndices[i * 12 + 9] = i * 3 + 1;
-      vIndices[i * 12 + 10] = i * 3 + 2;
-      vIndices[i * 12 + 11] = i * 3 + 5;
-    }
-    if (!g_stream.symmetric_ibo) {
-      glGenBuffers(1, &g_stream.symmetric_ibo);
-    }
-    CacheBindBuffer(
-        GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer,
-        g_stream.symmetric_ibo);
-    glBufferData(
-        GL_ELEMENT_ARRAY_BUFFER, vIndices.size() * sizeof(uint16_t),
-        vIndices.data(), GL_STATIC_DRAW);
-    g_stream.symmetric_pieces = iNumPieces;
-  }
-
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
-  CacheBindBuffer(
-      GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer, g_stream.symmetric_ibo);
-  glDrawElements(GL_TRIANGLES, iNumIndices, GL_UNSIGNED_SHORT, nullptr);
+  BindPatternIndices<12>(
+      g_stream.symmetric_strip, iNumPieces, [](GLuint i, GLuint* o) {
+        // { 1, 3, 0 } { 1, 4, 3 } { 1, 5, 4 } { 1, 2, 5 }
+        const GLuint b = i * 3;
+        o[0] = b + 1, o[1] = b + 3, o[2] = b + 0;
+        o[3] = b + 1, o[4] = b + 4, o[5] = b + 3;
+        o[6] = b + 1, o[7] = b + 5, o[8] = b + 4;
+        o[9] = b + 1, o[10] = b + 2, o[11] = b + 5;
+      });
+  glDrawElements(GL_TRIANGLES, iNumIndices, GL_UNSIGNED_INT, nullptr);
 }
 
 void RageDisplay_Legacy::DrawFanInternal(
