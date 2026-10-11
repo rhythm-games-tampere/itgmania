@@ -157,7 +157,7 @@ def setup_root(renderer, size, skip_perf):
         shutil.copy(REPO / "itgmania", exe)
     make_character(root)
     (root / "Portable.ini").touch()
-    for d in ("Logs", "Screenshots"):  # real directories, safe to clear
+    for d in ("Logs", "Screenshots", "Cache"):  # real directories, safe to clear
         shutil.rmtree(root / d, ignore_errors=True)
         (root / d).mkdir()
     # The game replaces VideoRenderers, the resolution and other video

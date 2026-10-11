@@ -65,4 +65,16 @@ for i, m in ipairs(modes) do
 	af[#af+1] = label("AMT " .. m, x, y + tile / 2 + 8)
 end
 
+-- Paletted PNG with per-entry alpha (8-bit surface uploaded as RGBA).
+local paletted = THEME:GetPathG("", "rt paletted")
+for i, extra in ipairs({ function(s) end, function(s) s:diffuse(color("1,0.5,0.5,0.8")) end,
+		function(s) s:blend("BlendMode_Add") end }) do
+	local x = tile * (i + 3 - 0.5) + tile / 2
+	local y = _screen.h * 0.82
+	af[#af+1] = Def.Sprite{ Texture=checker, InitCommand=function(self) self:xy(x, y):zoomto(tile - 4, tile - 4) end }
+	af[#af+1] = Def.Sprite{ Texture=paletted,
+		InitCommand=function(self) self:xy(x, y):zoomto(tile - 4, tile - 4); extra(self) end }
+	af[#af+1] = label("paletted " .. i, x, y + tile / 2 + 8)
+end
+
 return af
