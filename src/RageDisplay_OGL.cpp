@@ -1038,6 +1038,8 @@ std::string RageDisplay_Legacy::TryVideoMode(
 
     /* Recreate all vertex buffers. */
     ++g_iContextGeneration;
+    // The cache describes the old context; InitShaders binds programs.
+    InvalidateGLStateCache();
     InvalidateObjects();
 
     std::string sError = InitShaders();
@@ -2273,6 +2275,16 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
     return;
   }
 
+  // Deleting a bound texture binds 0 in its place; ids get reused. Render
+  // targets delete their texture too.
+  const GLuint id = static_cast<GLuint>(iTexture);
+  for (int64_t& b : g_cache.bound_tex) {
+    if (b == id) {
+      b = 0;
+    }
+  }
+  g_tex_params.erase(id);
+
   if (g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end()) {
     delete g_mapRenderTargets[iTexture];
     g_mapRenderTargets.erase(iTexture);
@@ -2280,13 +2292,6 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
   }
 
   DebugFlushGLErrors();
-  // Deleting a bound texture binds 0 in its place; ids get reused.
-  for (int64_t& b : g_cache.bound_tex) {
-    if (b == static_cast<int64_t>(iTexture)) {
-      b = 0;
-    }
-  }
-  g_tex_params.erase(static_cast<GLuint>(iTexture));
   glDeleteTextures(1, reinterpret_cast<GLuint*>(&iTexture));
   DebugAssertNoGLError();
 }
@@ -2343,7 +2348,7 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   SetTextureUnit(TextureUnit_1);
 
   // allocate OpenGL texture resource
-  uintptr_t iTexHandle;
+  uintptr_t iTexHandle = 0;  // glGenTextures fills only the low 32 bits
   glGenTextures(1, reinterpret_cast<GLuint*>(&iTexHandle));
   g_tex_params.erase(static_cast<GLuint>(iTexHandle));  // ids get reused
   ASSERT(iTexHandle != 0);
