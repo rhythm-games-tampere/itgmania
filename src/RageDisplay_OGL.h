@@ -111,7 +111,6 @@ class RageDisplay_Legacy : public RageDisplay {
 
   // hacks for cell-shaded models
   virtual void SetPolygonMode(PolygonMode pm);
-  virtual void SetLineWidth(float fWidth);
 
   std::string GetTextureDiagnostics(uintptr_t id) const;
 
@@ -123,8 +122,6 @@ class RageDisplay_Legacy : public RageDisplay {
   void DrawTrianglesInternal(const RageSpriteVertex v[], int iNumVerts);
   void DrawCompiledGeometryInternal(
       const RageCompiledGeometry* p, int iMeshIndex);
-  void DrawLineStripInternal(
-      const RageSpriteVertex v[], int iNumVerts, float LineWidth);
   void DrawSymmetricQuadStripInternal(
       const RageSpriteVertex v[], int iNumVerts);
 

@@ -60,10 +60,6 @@ static bool g_bReversePackedPixelsWorks = true;
 
 /* OpenGL system information that generally doesn't change at runtime. */
 
-/* Range and granularity of points and lines: */
-static float g_line_range[2];
-static float g_point_range[2];
-
 /* OpenGL version * 10: */
 static int g_glVersion;
 
@@ -900,11 +896,6 @@ std::string RageDisplay_Legacy::Init(
     return GLDIRECT_IS_NOT_COMPATIBLE.GetValue() + "\n";
   }
 #endif
-
-  /* Log this, so if people complain that the radar looks bad on their
-   * system we can compare them: */
-  glGetFloatv(GL_LINE_WIDTH_RANGE, g_line_range);
-  glGetFloatv(GL_POINT_SIZE_RANGE, g_point_range);
 
   return std::string();
 }
@@ -1808,79 +1799,6 @@ void RageDisplay_Legacy::DrawCompiledGeometryInternal(
   SendCurrentMatrices();
 
   p->Draw(iMeshIndex);
-}
-
-void RageDisplay_Legacy::DrawLineStripInternal(
-    const RageSpriteVertex v[], int iNumVerts, float fLineWidth) {
-  if (!GetActualVideoModeParams().bSmoothLines) {
-    /* Fall back on the generic polygon-based line strip. */
-    RageDisplay::DrawLineStripInternal(v, iNumVerts, fLineWidth);
-    return;
-  }
-
-  SendCurrentMatrices();
-
-  /* Draw a nice AA'd line loop.  One problem with this is that point and line
-   * sizes don't always precisely match, which doesn't look quite right.
-   * It's worth it for the AA, though. */
-  glEnable(GL_LINE_SMOOTH);
-
-  /* fLineWidth is in units relative to object space, but OpenGL line and point
-   * sizes are in raster units (actual pixels).  Scale the line width by the
-   * average ratio; if object space is 640x480, and we have a 1280x960 window,
-   * we'll double the width. */
-  {
-    const RageMatrix* pMat = GetProjectionTop();
-    float fW = 2 / pMat->m[0][0];
-    float fH = -2 / pMat->m[1][1];
-    float fWidthVal = float(g_pWind->GetActualVideoModeParams().width) / fW;
-    float fHeightVal = float(g_pWind->GetActualVideoModeParams().height) / fH;
-    fLineWidth *= (fWidthVal + fHeightVal) / 2;
-  }
-
-  /* Clamp the width to the hardware max for both lines and points (whichever
-   * is more restrictive). */
-  fLineWidth = std::clamp(fLineWidth, g_line_range[0], g_line_range[1]);
-  fLineWidth = std::clamp(fLineWidth, g_point_range[0], g_point_range[1]);
-
-  /* Hmm.  The granularity of lines and points might be different; for example,
-   * if lines are .5 and points are .25, we might want to snap the width to the
-   * nearest .5, so the hardware doesn't snap them to different sizes.  Does it
-   * matter? */
-  glLineWidth(fLineWidth);
-
-  /* Draw the line loop: */
-  SetupVertices(v, iNumVerts);
-  glDrawArrays(GL_LINE_STRIP, 0, iNumVerts);
-  StatsAddVerts(iNumVerts);
-
-  glDisable(GL_LINE_SMOOTH);
-
-  /* Round off the corners.  This isn't perfect; the point is sometimes a little
-   * larger than the line, causing a small bump on the edge.  Not sure how to
-   * fix that. */
-  glPointSize(fLineWidth);
-
-  /* Hack: if the points will all be the same, we don't want to draw
-   * any points at all, since there's nothing to connect.  That'll happen
-   * if both scale factors in the matrix are ~0.  (Actually, I think
-   * it's true if two of the three scale factors are ~0, but we don't
-   * use this for anything 3d at the moment anyway ...)  This is needed
-   * because points aren't scaled like regular polys--a zero-size point
-   * will still be drawn. */
-  const RageMatrix& mat = FF().modelview;
-
-  if (mat.m[0][0] < 1e-5 && mat.m[1][1] < 1e-5) {
-    return;
-  }
-
-  glEnable(GL_POINT_SMOOTH);
-
-  // The arrays still point at the line strip's vertices.
-  glDrawArrays(GL_POINTS, 0, iNumVerts);
-  StatsAddVerts(iNumVerts);
-
-  glDisable(GL_POINT_SMOOTH);
 }
 
 static bool SetTextureUnit(TextureUnit tu) {
@@ -2798,8 +2716,6 @@ void RageDisplay_Legacy::SetPolygonMode(PolygonMode pm) {
   }
   glPolygonMode(GL_FRONT_AND_BACK, m);
 }
-
-void RageDisplay_Legacy::SetLineWidth(float fWidth) { glLineWidth(fWidth); }
 
 std::string RageDisplay_Legacy::GetTextureDiagnostics(
     uintptr_t iTexture) const {
