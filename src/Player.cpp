@@ -1,4 +1,5 @@
 #include "Player.h"
+#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <climits>
@@ -918,7 +919,10 @@ void Player::Update(float fDeltaTime) {
     return;
   }
 
+  RenderProfiler::Sections prof;
+  prof.Next("Player: ActorFrame::Update (children)");
   ActorFrame::Update(fDeltaTime);
+  prof.Next("Player: layout");
 
   if (m_pPlayerState->m_mp != MultiPlayer_Invalid) {
     /* In multiplayer, it takes too long to run player updates for every player
@@ -1064,6 +1068,7 @@ void Player::Update(float fDeltaTime) {
     return;
   }
 
+  prof.Next("Player: pressed-column scan");
   // update pressed flag
   const int iNumCols =
       GAMESTATE->GetCurrentStyle(GetPlayerState()->m_PlayerNumber)
@@ -1090,6 +1095,7 @@ void Player::Update(float fDeltaTime) {
     }
   }
 
+  prof.Next("Player: autoplay rolls");
   // handle Autoplay for rolls
   if (m_pPlayerState->m_PlayerController != PC_HUMAN) {
     for (int iTrack = 0; iTrack < m_NoteData.GetNumTracks(); ++iTrack) {
@@ -1121,6 +1127,7 @@ void Player::Update(float fDeltaTime) {
     }
   }
 
+  prof.Next("Player: held-miss tracking");
   // Track held misses
   //
   // A miss is "held" if the player was physically holding the button at the
@@ -1183,6 +1190,7 @@ void Player::Update(float fDeltaTime) {
     }
   }
 
+  prof.Next("Player: hold notes");
   // update HoldNotes logic
   {
     // Fast forward to the first that needs hold judging.
@@ -1246,6 +1254,7 @@ void Player::Update(float fDeltaTime) {
     }
   }
 
+  prof.Next("Player: CrossedRows");
   {
     // Why was this originally "BeatToNoteRowNotRounded"? It should be rounded.
     // -Chris
@@ -1278,13 +1287,16 @@ void Player::Update(float fDeltaTime) {
     }
   }
 
+  prof.Next("Player: UpdateJudgedRows");
   // Check for completely judged rows.
   UpdateJudgedRows();
 
+  prof.Next("Player: missed taps");
   // Check for TapNote misses
   if (!GAMESTATE->m_bInStepEditor) {
     UpdateTapNotesMissedOlderThan(GetMaxStepDistanceSeconds());
   }
+  prof.Next("Player: transforms");
   // process transforms that are waiting to be applied
   ApplyWaitingTransforms();
 }

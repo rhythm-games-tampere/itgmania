@@ -60,6 +60,7 @@
  */
 
 #include "ScreenManager.h"
+#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <map>
@@ -525,6 +526,8 @@ void ScreenManager::Draw() {
     overlayScreen->Draw();
   }
 
+  RenderProfiler::Scope prof("Present (EndFrame)", RenderProfiler::kNamed,
+                             RenderProfiler::kSlotPresent);
   DISPLAY->EndFrame();
 }
 
@@ -716,6 +719,7 @@ bool ScreenManager::ActivatePreparedScreenAndBackground(
 }
 
 void ScreenManager::LoadDelayedScreen() {
+  RenderProfiler::Stop();  // leaving gameplay; don't profile screen loads
   std::string sScreenName = m_sDelayedScreen;
   m_sDelayedScreen = "";
   if (!IsScreenNameValid(sScreenName)) {

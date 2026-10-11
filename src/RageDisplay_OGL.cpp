@@ -1,4 +1,5 @@
 #include "RageDisplay_OGL.h"
+#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -252,6 +253,7 @@ static void FixLittleEndian() {
  * context on another thread. Invalidated on frame start, render target and
  * resolution changes, and concurrent rendering hand-offs. */
 namespace {
+using RenderProfiler::CountGL;
 
 struct GLStateCache {
   int active_unit;
@@ -308,6 +310,7 @@ void InvalidateGLStateCache() {
 
 void CacheActiveUnit(int unit) {
   if (g_cache.active_unit == unit) return;
+  CountGL(RenderProfiler::kGLTexture);
   glActiveTextureARB(enum_add2(GL_TEXTURE0_ARB, unit));
   g_cache.active_unit = unit;
 }
@@ -318,12 +321,14 @@ void CacheClientUnit(int unit) {
     g_cache.client_unit = 0;  // only unit 0 exists
     return;
   }
+  CountGL(RenderProfiler::kGLVertexSetup);
   glClientActiveTextureARB(enum_add2(GL_TEXTURE0_ARB, unit));
   g_cache.client_unit = unit;
 }
 
 void CacheClientArray(GLenum array, int& cached, bool on) {
   if (cached == static_cast<int>(on)) return;
+  CountGL(RenderProfiler::kGLVertexSetup);
   if (on) {
     glEnableClientState(array);
   } else {
@@ -342,6 +347,7 @@ void CacheTexCoordArray(int unit, bool on) {
 void CacheBindTexture(GLuint id) {
   int unit = g_cache.active_unit;
   if (unit >= 0 && g_cache.bound_tex[unit] == id) return;
+  CountGL(RenderProfiler::kGLTexture);
   glBindTexture(GL_TEXTURE_2D, id);
   if (unit >= 0) {
     g_cache.bound_tex[unit] = id;
@@ -350,8 +356,9 @@ void CacheBindTexture(GLuint id) {
   }
 }
 
-void CacheEnable(GLenum cap, int& cached, bool on) {
+void CacheEnable(GLenum cap, int& cached, bool on, RenderProfiler::GLStat stat) {
   if (cached == static_cast<int>(on)) return;
+  CountGL(stat);
   if (on) {
     glEnable(cap);
   } else {
@@ -362,6 +369,7 @@ void CacheEnable(GLenum cap, int& cached, bool on) {
 
 void CacheMatrixMode(GLenum mode) {
   if (g_cache.matrix_mode == static_cast<int>(mode)) return;
+  CountGL(RenderProfiler::kGLMatrix);
   glMatrixMode(mode);
   g_cache.matrix_mode = mode;
 }
@@ -370,6 +378,7 @@ void CacheLoadMatrix(GLenum mode, const RageMatrix& m, RageMatrix& cached,
                      bool& valid) {
   if (valid && memcmp(&m, &cached, sizeof(RageMatrix)) == 0) return;
   CacheMatrixMode(mode);
+  CountGL(RenderProfiler::kGLMatrix);
   glLoadMatrixf(reinterpret_cast<const float*>(&m));
   cached = m;
   valid = true;
@@ -377,6 +386,7 @@ void CacheLoadMatrix(GLenum mode, const RageMatrix& m, RageMatrix& cached,
 
 void CacheBindBuffer(GLenum target, int64_t& cached, GLuint id) {
   if (cached == id) return;
+  CountGL(RenderProfiler::kGLVertexSetup);
   glBindBufferARB(target, id);
   cached = id;
 }
@@ -385,6 +395,7 @@ void CacheUseProgram(GLhandleARB program) {
   // GLhandleARB is an integer on most platforms, a pointer on macOS.
   int64_t p = static_cast<int64_t>((uintptr_t)program);
   if (g_cache.program == p) return;
+  CountGL(RenderProfiler::kGLOther);
   glUseProgramObjectARB(program);
   g_cache.program = p;
 }
@@ -406,6 +417,7 @@ bool NeedsNormals() {
   if (g_cache.lighting == 0 && unit >= 0 && g_cache.texgen[unit] >= 0) {
     return g_cache.texgen[unit] == 1;
   }
+  CountGL(RenderProfiler::kGLGet, 3);
   GLboolean bLighting, bTextureGenS, bTextureGenT;
   glGetBooleanv(GL_LIGHTING, &bLighting);
   glGetBooleanv(GL_TEXTURE_GEN_S, &bTextureGenS);
@@ -1176,6 +1188,7 @@ static void SetVertexArrays(const void* pos, GLsizei pos_stride,
                             GLsizei color_stride, const void* tex,
                             GLsizei tex_stride, const void* normal,
                             GLsizei normal_stride) {
+  CountGL(RenderProfiler::kGLVertexSetup, 4);
   CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
   glVertexPointer(3, GL_FLOAT, pos_stride, pos);
 
@@ -1193,6 +1206,7 @@ static void SetVertexArrays(const void* pos, GLsizei pos_stride,
     if (g_cache.tex_enabled[TextureUnit_2] != 0) {
       CacheTexCoordArray(TextureUnit_2, true);
       CacheClientUnit(TextureUnit_2);
+      CountGL(RenderProfiler::kGLVertexSetup);
       glTexCoordPointer(2, GL_FLOAT, tex_stride, tex);
     } else {
       CacheTexCoordArray(TextureUnit_2, false);
@@ -1269,6 +1283,7 @@ void RageDisplay_Legacy::SendCurrentMatrices() {
                     g_cache.tex_mat_valid[unit]);
   } else {
     CacheMatrixMode(GL_TEXTURE);
+    CountGL(RenderProfiler::kGLMatrix);
     glLoadMatrixf((const float*)GetTextureTop());
   }
 }
@@ -1318,6 +1333,7 @@ class RageCompiledGeometrySWOGL : public RageCompiledGeometry {
 
     const MeshInfo& meshInfo = m_vMeshInfo[iMeshIndex];
 
+    CountGL(RenderProfiler::kGLVertexSetup, 3);
     CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
     glVertexPointer(3, GL_FLOAT, 0, &m_vPosition[0]);
 
@@ -1335,6 +1351,7 @@ class RageCompiledGeometrySWOGL : public RageCompiledGeometry {
       // XXX: Change me to scale the translation by the TextureTranslationScale
       // of the first vertex.
       RageMatrix mat;
+      RenderProfiler::CountGL(RenderProfiler::kGLGet);
       glGetFloatv(GL_TEXTURE_MATRIX, (float*)mat);
 
       /*
@@ -1574,6 +1591,7 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
     return;
   }
 
+  CountGL(RenderProfiler::kGLVertexSetup, 2);
   CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
   CacheBindBuffer(GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, m_nPositions);
   glVertexPointer(3, GL_FLOAT, 0, nullptr);
@@ -1590,6 +1608,7 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
   // TRICKY:  Don't bind and send normals if lighting is disabled.  This
   // will save some effort transforming these values.
   if (NeedsNormals()) {
+    CountGL(RenderProfiler::kGLVertexSetup);
     CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, true);
     CacheBindBuffer(GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, m_nNormals);
     glNormalPointer(GL_FLOAT, 0, nullptr);
@@ -1619,6 +1638,7 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
       // XXX: Change me to scale the translation by the TextureTranslationScale
       // of the first vertex.
       RageMatrix mat;
+      RenderProfiler::CountGL(RenderProfiler::kGLGet);
       glGetFloatv(GL_TEXTURE_MATRIX, (float*)mat);
 
       /*
@@ -1825,6 +1845,7 @@ void RageDisplay_Legacy::DrawLineStripInternal(
    * because points aren't scaled like regular polys--a zero-size point
    * will still be drawn. */
   RageMatrix mat;
+  RenderProfiler::CountGL(RenderProfiler::kGLGet);
   glGetFloatv(GL_MODELVIEW_MATRIX, (float*)mat);
 
   if (mat.m[0][0] < 1e-5 && mat.m[1][1] < 1e-5) {
@@ -1877,7 +1898,8 @@ void RageDisplay_Legacy::SetTexture(TextureUnit tu, uintptr_t iTexture) {
     return;
   }
 
-  CacheEnable(GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0);
+  CacheEnable(GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0,
+              RenderProfiler::kGLTexture);
   if (iTexture) {
     CacheBindTexture(static_cast<GLuint>(iTexture));
   }
@@ -1892,6 +1914,7 @@ void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
     return;
   }
   g_cache.tex_mode[tu] = tm;
+  RenderProfiler::CountGL(RenderProfiler::kGLTexture, tm == TextureMode_Glow ? 8 : 1);
   switch (tm) {
     case TextureMode_Modulate:
       glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -1941,6 +1964,7 @@ void RageDisplay_Legacy::SetTextureFiltering(TextureUnit tu, bool b) {
     }
   }
 
+  CountGL(RenderProfiler::kGLTexture, 2);
   glTexParameteri(
       GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, b ? GL_LINEAR : GL_NEAREST);
 
@@ -1950,6 +1974,7 @@ void RageDisplay_Legacy::SetTextureFiltering(TextureUnit tu, bool b) {
     if (params != nullptr && params->mipmapped >= 0) {
       mipmapped = params->mipmapped == 1;
     } else {
+      CountGL(RenderProfiler::kGLGet, 2);
       GLint iWidth1 = -1;
       GLint iWidth2 = -1;
       glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth1);
@@ -2073,6 +2098,7 @@ void RageDisplay_Legacy::SetBlendMode(BlendMode mode) {
     return;
   }
   g_cache.blend = mode;
+  RenderProfiler::CountGL(RenderProfiler::kGLBlend, 3);
   glEnable(GL_BLEND);
 
   if (glBlendEquation != nullptr) {
@@ -2158,6 +2184,7 @@ bool RageDisplay_Legacy::IsZWriteEnabled() const {
   if (g_cache.zwrite >= 0) {
     return g_cache.zwrite == 1;
   }
+  RenderProfiler::CountGL(RenderProfiler::kGLGet);
   bool a;
   glGetBooleanv(GL_DEPTH_WRITEMASK, (unsigned char*)&a);
   return a;
@@ -2167,6 +2194,7 @@ bool RageDisplay_Legacy::IsZTestEnabled() const {
   if (g_cache.ztest >= 0) {
     return g_cache.ztest != ZTEST_OFF;
   }
+  RenderProfiler::CountGL(RenderProfiler::kGLGet);
   GLenum a;
   glGetIntegerv(GL_DEPTH_FUNC, (GLint*)&a);
   return a != GL_ALWAYS;
@@ -2184,6 +2212,7 @@ void RageDisplay_Legacy::SetZWrite(bool b) {
     return;
   }
   g_cache.zwrite = b;
+  RenderProfiler::CountGL(RenderProfiler::kGLDepth);
   glDepthMask(b);
 }
 
@@ -2195,6 +2224,7 @@ void RageDisplay_Legacy::SetZBias(float f) {
   }
   g_cache.zbias = f;
   g_cache.zbias_valid = true;
+  RenderProfiler::CountGL(RenderProfiler::kGLDepth);
 
   glDepthRange(fNear, fFar);
 }
@@ -2204,6 +2234,7 @@ void RageDisplay_Legacy::SetZTestMode(ZTestMode mode) {
     return;
   }
   g_cache.ztest = mode;
+  RenderProfiler::CountGL(RenderProfiler::kGLDepth, 2);
   glEnable(GL_DEPTH_TEST);
   switch (mode) {
     case ZTEST_OFF:
@@ -2234,6 +2265,7 @@ void RageDisplay_Legacy::SetTextureWrapping(TextureUnit tu, bool b) {
     }
     params->wrap = b;
   }
+  RenderProfiler::CountGL(RenderProfiler::kGLTexture, 2);
 
   GLenum mode = b ? GL_REPEAT : GL_CLAMP_TO_EDGE;
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mode);
@@ -2252,8 +2284,10 @@ void RageDisplay_Legacy::SetMaterial(
   if (g_cache.lighting >= 0) {
     bLighting = g_cache.lighting == 1;
   } else {
+    RenderProfiler::CountGL(RenderProfiler::kGLGet);
     glGetBooleanv(GL_LIGHTING, &bLighting);
   }
+  RenderProfiler::CountGL(RenderProfiler::kGLLighting, bLighting ? 5 : 1);
 
   if (bLighting) {
     glMaterialfv(GL_FRONT, GL_EMISSION, emissive);
@@ -2271,7 +2305,7 @@ void RageDisplay_Legacy::SetMaterial(
 }
 
 void RageDisplay_Legacy::SetLighting(bool b) {
-  CacheEnable(GL_LIGHTING, g_cache.lighting, b);
+  CacheEnable(GL_LIGHTING, g_cache.lighting, b, RenderProfiler::kGLLighting);
 }
 
 void RageDisplay_Legacy::SetLightOff(int index) {
@@ -2304,6 +2338,7 @@ void RageDisplay_Legacy::SetCullMode(CullMode mode) {
     return;
   }
   g_cache.cull = mode;
+  RenderProfiler::CountGL(RenderProfiler::kGLCull, mode == CULL_NONE ? 1 : 2);
   if (mode != CULL_NONE) {
     glEnable(GL_CULL_FACE);
   }
@@ -3009,6 +3044,7 @@ void RageDisplay_Legacy::SetAlphaTest(bool b) {
     return;
   }
   g_cache.alpha_test = b;
+  RenderProfiler::CountGL(RenderProfiler::kGLAlphaTest, 2);
   // Previously this was 0.01, rather than 0x01.
   glAlphaFunc(GL_GREATER, 0.00390625 /* 1/256 */);
   if (b) {
@@ -3076,6 +3112,7 @@ void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
     return;
   }
   g_cache.texgen[tu] = b;
+  RenderProfiler::CountGL(RenderProfiler::kGLTexture, b ? 4 : 2);
   if (b) {
     glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
     glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);

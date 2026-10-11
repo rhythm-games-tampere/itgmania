@@ -1,4 +1,5 @@
 #include "NoteField.h"
+#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -387,13 +388,17 @@ void NoteField::Update(float fDeltaTime) {
     m_pCurDisplay->m_ReceptorArrowRow.PlayCommand("On");
   }
 
+  RenderProfiler::Sections prof;
+  prof.Next("NoteField: ActorFrame::Update (children)");
   ActorFrame::Update(fDeltaTime);
   ArrowEffects::SetCurrentOptions(
       &m_pPlayerState->m_PlayerOptions.GetCurrent());
 
+  prof.Next("NoteField: column renderers");
   for (size_t c = 0; c < m_ColumnRenderers.size(); ++c) {
     m_ColumnRenderers[c].Update(fDeltaTime);
   }
+  prof.Next("NoteField: board, receptors, ghosts");
 
   // update m_fBoardOffsetPixels, m_fCurrentBeatLastUpdate,
   // m_fYPosCurrentBeatLastUpdate
@@ -436,6 +441,7 @@ void NoteField::Update(float fDeltaTime) {
   m_pCurDisplay->m_ReceptorArrowRow.SetFadeToFailPercent(
       m_FieldRenderArgs.fail_fade);
 
+  prof.Next("NoteField: NoteDisplay::Update (all noteskin resources)");
   // Shared by every NoteField; guarded to run once per frame.
   NoteDisplay::Update(fDeltaTime);
 }
@@ -859,6 +865,8 @@ void NoteField::DrawPrimitives() {
   }
   // Some might prefer an else block, instead of returning from the if, but I
   // don't want to bump the indent on the entire remaining section. -Kyz
+  RenderProfiler::Sections prof;
+  prof.Next("NoteField draw: visible range");
   ArrowEffects::SetCurrentOptions(
       &m_pPlayerState->m_PlayerOptions.GetCurrent());
 
@@ -885,6 +893,7 @@ void NoteField::DrawPrimitives() {
        fBeat, 0, m_FieldRenderArgs.draw_pixels_after_targets,       \
        m_FieldRenderArgs.draw_pixels_before_targets))
 
+  prof.Next("NoteField draw: receptors");
   // Draw Receptors
   {
     cur->m_ReceptorArrowRow.Draw();
@@ -905,6 +914,7 @@ void NoteField::DrawPrimitives() {
       shared_style->m_StyleType == StyleType_TwoPlayersSharedSides &&
       m_pPlayerState->m_PlayerNumber != GAMESTATE->GetMasterPlayerNumber();
 
+  prof.Next("NoteField draw: beat bars, editor overlays");
   // Draw beat bars
   if ((GAMESTATE->IsEditing() || m_bShowBeatBars) && pTiming != nullptr &&
       !suppress_shared_overlays) {
@@ -1120,6 +1130,7 @@ void NoteField::DrawPrimitives() {
     }
   }
 
+  prof.Next("NoteField draw: note columns");
   // Optimization is very important here because there are so many arrows to
   // draw. Draw the arrows in order of column. This minimizes texture switches
   // and lets us draw in big batches.
@@ -1149,6 +1160,7 @@ void NoteField::DrawPrimitives() {
     m_ColumnRenderers[c].Draw();
   }
 
+  prof.Next("NoteField draw: ghost arrows");
   cur->m_GhostArrowRow.Draw();
 }
 

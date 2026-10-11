@@ -1,4 +1,5 @@
 #include "ScreenGameplay.h"
+#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1090,6 +1091,7 @@ ScreenGameplay::~ScreenGameplay() {
   }
 
   LOG->Trace("ScreenGameplay::~ScreenGameplay()");
+  RenderProfiler::Stop();
 
   const Style* pMasterStyle =
       GAMESTATE->GetCurrentStyle(GAMESTATE->GetMasterPlayerNumber());
@@ -1765,6 +1767,7 @@ void ScreenGameplay::BeginScreen() {
   }
 
   ScreenWithMenuElements::BeginScreen();
+  RenderProfiler::Start();
 
   SOUND->PlayOnceFromAnnouncer("gameplay intro");  // crowd cheer
 

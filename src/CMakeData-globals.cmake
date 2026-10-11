@@ -1,5 +1,6 @@
 list(APPEND SMDATA_GLOBAL_FILES_SRC
             "GameLoop.cpp"
+            "RenderProfiler.cpp"
             "global.cpp"
             "SpecialFiles.cpp"
             "StepMania.cpp" # TODO: Refactor into separate main project.
@@ -7,6 +8,7 @@ list(APPEND SMDATA_GLOBAL_FILES_SRC
 
 list(APPEND SMDATA_GLOBAL_FILES_HPP
             "GameLoop.h"
+            "RenderProfiler.h"
             "global.h"
             "PeriodicCaller.h"
             "ProductInfo.h" # TODO: Have this be auto-generated.

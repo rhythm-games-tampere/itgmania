@@ -26,6 +26,7 @@
 #include "RageUtil.h"
 #include "RageUtil/RandomNumbers.h"
 #include "RageUtil_AutoPtr.h"
+#include "RenderProfiler.h"
 #include "StdString.h"
 #include "Tween.h"
 #include "XmlFile.h"
@@ -395,6 +396,7 @@ void Actor::Draw() {
   if (!m_bVisible || m_fHibernateSecondsLeft > 0 || this->EarlyAbortDraw()) {
     return;  // early abort
   }
+  RenderProfiler::Scope prof(this, RenderProfiler::kDraw);
   if (m_FakeParent) {
     if (!m_FakeParent->m_bVisible ||
         m_FakeParent->m_fHibernateSecondsLeft > 0 ||
@@ -858,6 +860,7 @@ void Actor::UpdateTweening(float fDeltaTime) {
 bool Actor::IsFirstUpdate() const { return m_bFirstUpdate; }
 
 void Actor::Update(float fDeltaTime) {
+  RenderProfiler::Scope prof(this, RenderProfiler::kUpdate);
   //	LOG->Trace( "Actor::Update( %f )", fDeltaTime );
 
   float rate = GameLoop::GetUpdateRate();
@@ -1328,6 +1331,7 @@ void Actor::AddRotationR(float rot) {
 
 void Actor::RunCommands(
     const LuaReference& cmds, const LuaReference* pParamTable) {
+  RenderProfiler::Scope prof(this, RenderProfiler::kCommand);
   if (!cmds.IsSet() || cmds.IsNil()) {
     LuaHelpers::ReportScriptErrorFmt(
         "RunCommands: commands for %s are unset or nil", GetLineage().c_str());
@@ -1553,6 +1557,7 @@ void Actor::HandleMessage(const Message& msg) { PlayCommandNoRecurse(msg); }
 void Actor::PlayCommandNoRecurse(const Message& msg) {
   const apActorCommands* pCmd = GetCommand(msg.GetName());
   if (pCmd != nullptr && (*pCmd)->IsSet() && !(*pCmd)->IsNil()) {
+    RenderProfiler::CommandScope prof(this, msg.GetName());
     RunCommands(*pCmd, &msg.GetParamTable());
   }
 }

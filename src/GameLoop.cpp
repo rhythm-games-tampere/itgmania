@@ -1,4 +1,5 @@
 #include "GameLoop.h"
+#include "RenderProfiler.h"
 
 #include <cmath>
 #include <string>
@@ -259,28 +260,39 @@ void GameLoop::UpdateAllButDraw() {
 
   // Update SOUNDMAN early (before any RageSound::GetPosition calls), to flush
   // position data.
+  RenderProfiler::Sections prof;
+  prof.Next("SOUNDMAN->Update");
   SOUNDMAN->Update();
 
   /* Update song beat information -before- calling update on all the classes
    * that depend on it. If you don't do this first, the classes are all acting
    * on old information and will lag. (but no longer fatally, due to
    * timestamping -glenn) */
+  prof.Next("SOUND->Update");
   SOUND->Update(fDeltaTime);
+  prof.Next("TEXTUREMAN->Update");
   TEXTUREMAN->Update(fDeltaTime);
+  prof.Next("GAMESTATE->Update");
   GAMESTATE->Update(fDeltaTime);
+  prof.Next("NETWORK->Update");
   NETWORK->Update();
+  prof.Next("SCREENMAN->Update");
   SCREENMAN->Update(fDeltaTime);
+  prof.Next("MEMCARDMAN/SYNCMAN->Update");
   MEMCARDMAN->Update();
   SYNCMAN->Update();
 
   /* Important: Process input AFTER updating game logic, or input will be
    * acting on song beat from last frame */
+  prof.Next("HandleInputEvents");
   HandleInputEvents(fDeltaTime);
 
   // Update the lights
+  prof.Next("LIGHTSMAN->Update");
   LIGHTSMAN->Update(fDeltaTime);
 
   // Process broadcast queue from other threads
+  prof.Next("MESSAGEMAN->HandleQueuedBroadcasts");
   MESSAGEMAN->HandleQueuedBroadcasts();
 }
 
@@ -306,11 +318,21 @@ void GameLoop::RunGameLoop() {
       ArchHooks::SetUserQuit();
     }
 
-    UpdateAllButDraw();
+    RenderProfiler::FrameBegin();
+    {
+      RenderProfiler::Scope prof("Update", RenderProfiler::kNamed,
+                                 RenderProfiler::kSlotUpdate);
+      UpdateAllButDraw();
+    }
 
     CallEveryNFrames(500, CheckInputDevices);
 
-    SCREENMAN->Draw();
+    {
+      RenderProfiler::Scope prof("Draw", RenderProfiler::kNamed,
+                                 RenderProfiler::kSlotDraw);
+      SCREENMAN->Draw();
+    }
+    RenderProfiler::FrameEnd();
   }
 
   // If we ended mid-game, finish up.
