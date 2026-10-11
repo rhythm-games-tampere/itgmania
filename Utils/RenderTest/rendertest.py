@@ -49,6 +49,7 @@ TextureColorDepth=32
 MovieColorDepth=32
 Vsync=0
 VideoRenderers={renderer}
+LastSeenVideoDriver={driver}
 ConstantUpdateDeltaSeconds=0.016666668
 FrameLockedSongTime=1
 AutoPlay=Autoplay
@@ -135,7 +136,17 @@ def setup_root(renderer):
     for d in ("Logs", "Screenshots"):  # real directories, safe to clear
         shutil.rmtree(root / d, ignore_errors=True)
         (root / d).mkdir()
-    (root / "Save" / "Preferences.ini").write_text(PREFS.format(renderer=renderer))
+    # The game replaces VideoRenderers and other video settings with per-GPU
+    # defaults whenever LastSeenVideoDriver isn't the current driver. That is
+    # "OpenGL" on Linux/macOS; on Windows it's the adapter name, which the
+    # game saves on exit, so only the first run on a machine uses defaults.
+    prefs = root / "Save" / "Preferences.ini"
+    driver = "OpenGL"
+    if os.name == "nt":
+        old = prefs.read_text(errors="replace") if prefs.exists() else ""
+        m = re.search(r"^LastSeenVideoDriver=(.*)$", old, re.M)
+        driver = m.group(1) if m else ""
+    prefs.write_text(PREFS.format(renderer=renderer, driver=driver))
     return root, exe
 
 
@@ -143,11 +154,23 @@ def run(args):
     out = Path(args.out) if args.out else WORK / "runs" / time.strftime("%Y%m%d-%H%M%S")
     root, exe = setup_root(args.renderer)
     print(f"Running {exe} ...")
+    log = root / "Logs" / "log.txt"
     t = time.time()
-    try:
-        subprocess.run([str(exe)], cwd=exe.parent, timeout=args.timeout)
-    except subprocess.TimeoutExpired:
-        print(f"ITGmania didn't exit within {args.timeout}s; collecting what exists.")
+    proc = subprocess.Popen([str(exe)], cwd=exe.parent)
+    exception_seen = None
+    while proc.poll() is None:
+        time.sleep(1)
+        if exception_seen is None and log.exists() and \
+                "Exception:" in log.read_text(errors="replace"):
+            exception_seen = time.time()
+        # After an exception the game shows a dialog and waits for a click.
+        if exception_seen and time.time() - exception_seen > 10:
+            print("The game threw an exception; killing it.")
+            proc.kill()
+        elif time.time() - t > args.timeout:
+            print(f"ITGmania didn't exit within {args.timeout}s; killing it.")
+            proc.kill()
+    proc.wait()
     print(f"Game ran {time.time() - t:.0f}s")
 
     out.mkdir(parents=True, exist_ok=True)
@@ -158,14 +181,20 @@ def run(args):
     if profiles:
         shutil.copy(profiles[-1], out / "perf.json")
         shutil.copy(profiles[-1].with_suffix(".txt"), out / "perf.txt")
-    log = root / "Logs" / "log.txt"
     text = log.read_text(errors="replace") if log.exists() else ""
     if text:
         shutil.copy(log, out / "log.txt")
-        errors = [l for l in text.splitlines()
-                  if re.search(r"(?<!_)\berror\b|Dialog:|ok=false", l, re.I)]
-        for l in errors[:20]:
+        lines = text.splitlines()
+        errors = [l for l in lines
+                  if re.search(r"(?<!_)\berror\b|Dialog:|ok=false|renderer|"
+                               r"OGL |driver", l, re.I)]
+        for l in errors[:40]:
             print("log:", l)
+        # Exception messages span several lines; print the whole thing.
+        for i, l in enumerate(lines):
+            if "Exception:" in l:
+                print("\n".join(lines[i:i + 30]))
+                break
 
     # The theme logs this after its last step, so it means every step ran.
     done = "RenderTest: done" in text
