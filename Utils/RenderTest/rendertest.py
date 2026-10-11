@@ -2,7 +2,7 @@
 """Reference screenshots and a perf baseline for the rendering work
 (Docs/Devdocs/RenderingModernizationPlan.md, Phase 0).
 
-  rendertest.py run [--out DIR] [--renderer opengl|d3d]
+  rendertest.py run [--out DIR] [--renderer opengl|d3d] [--size WxH] [--no-perf]
   rendertest.py compare BASELINE_DIR NEW_DIR
 
 `run` builds an isolated portable install under Build/RenderTest/root
@@ -41,8 +41,8 @@ PREFS = """[Options]
 Theme=RenderTest
 Language=en
 Windowed=1
-DisplayWidth=1280
-DisplayHeight=720
+DisplayWidth={width}
+DisplayHeight={height}
 DisplayAspectRatio=1.777778
 DisplayColorDepth=32
 TextureColorDepth=32
@@ -62,6 +62,7 @@ SoundDrivers=Null
 AllowUnacceleratedRenderer=1
 ShowStats=0
 LogToDisk=1
+ScreenshotBackBuffer=1
 IgnoredDialogs=MissingThemeElement
 AdditionalSongFolders=
 AdditionalCourseFolders=
@@ -108,7 +109,7 @@ def make_character(root):
         shutil.copy(char / "model.txt", char / anim / "anim.txt")
 
 
-def setup_root(renderer):
+def setup_root(renderer, size, skip_perf):
     root = WORK / "root"
     for d in ("Themes", "Characters", "Save"):
         (root / d).mkdir(parents=True, exist_ok=True)
@@ -146,13 +147,17 @@ def setup_root(renderer):
         old = prefs.read_text(errors="replace") if prefs.exists() else ""
         m = re.search(r"^LastSeenVideoDriver=(.*)$", old, re.M)
         driver = m.group(1) if m else ""
-    prefs.write_text(PREFS.format(renderer=renderer, driver=driver))
+    width, height = size.split("x")
+    prefs.write_text(PREFS.format(renderer=renderer, driver=driver,
+                                  width=width, height=height))
+    (root / "Save" / "RenderTest.ini").write_text(
+        f"[RenderTest]\nSkipPerf={int(skip_perf)}\n")
     return root, exe
 
 
 def run(args):
     out = Path(args.out) if args.out else WORK / "runs" / time.strftime("%Y%m%d-%H%M%S")
-    root, exe = setup_root(args.renderer)
+    root, exe = setup_root(args.renderer, args.size, args.no_perf)
     print(f"Running {exe} ...")
     log = root / "Logs" / "log.txt"
     t = time.time()
@@ -199,12 +204,18 @@ def run(args):
     # The theme logs this after its last step, so it means every step ran.
     done = "RenderTest: done" in text
     failed_shots = text.count("ok=false")
+    # A single flat colour means the capture failed (e.g. black under Xvfb).
+    from PIL import Image
+    for p in sorted(out.glob("*.png")):
+        if all(lo == hi for lo, hi in Image.open(p).convert("RGB").getextrema()):
+            print(f"{p.name} is one flat colour")
+            failed_shots += 1
     print(f"{len(shots)} screenshots ({failed_shots} failed), "
-          f"perf {'ok' if profiles else 'MISSING'}, "
+          f"perf {'ok' if profiles else 'skipped' if args.no_perf else 'MISSING'}, "
           f"{'all steps ran' if done else 'DID NOT FINISH'} -> {out}")
     if profiles:
         print_perf(json.loads((out / "perf.json").read_text()))
-    return 0 if done and profiles and not failed_shots else 1
+    return 0 if done and (profiles or args.no_perf) and not failed_shots else 1
 
 
 PERF_ROWS = [
@@ -280,6 +291,10 @@ def main():
     r.add_argument("--out")
     r.add_argument("--renderer", default="opengl")
     r.add_argument("--timeout", type=int, default=900)
+    r.add_argument("--size", default="1280x720",
+                   help="window size; must fit the desktop (CI uses 960x540)")
+    r.add_argument("--no-perf", action="store_true",
+                   help="skip the full-song RenderProfiler run")
     c = sub.add_parser("compare")
     c.add_argument("baseline")
     c.add_argument("new")

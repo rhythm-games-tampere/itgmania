@@ -23,14 +23,27 @@ RenderTest = {
 		  celshade = true, shots = { [1500] = "notes" } },
 		-- Plays the whole song with RenderProfiler on (Phase 0.2 baseline).
 		{ name = "perf", gameplay = true, skins = { "default", "cel" }, profile = true },
-		-- Uses the stage stats from the perf run.
+		-- Uses the stage stats from the last gameplay step.
 		{ name = "graph", scene = "graph" },
 	},
 }
 
+-- Options from rendertest.py.
+local config = IniFile.ReadFile("/Save/RenderTest.ini").RenderTest or {}
+if config.SkipPerf == 1 then
+	for i, step in ipairs(RenderTest.steps) do
+		if step.profile then table.remove(RenderTest.steps, i) break end
+	end
+end
+
 function RenderTest.Next()
 	RenderTest.index = RenderTest.index + 1
-	return RenderTest.steps[RenderTest.index]
+	local step = RenderTest.steps[RenderTest.index]
+	-- Screenshots read a copy of the back buffer taken every frame (the front
+	-- buffer reads back black under Xvfb). Off for the perf run: it costs a
+	-- readback per frame.
+	PREFSMAN:SetPreference("ScreenshotBackBuffer", not (step and step.profile))
+	return step
 end
 
 function RenderTest.Current()

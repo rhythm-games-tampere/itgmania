@@ -17,6 +17,7 @@
 #include "EnumHelper.h"
 #include "LocalizedString.h"
 #include "ModelTypes.h"
+#include "Preference.h"
 #include "RageDisplay.h"
 #include "RageDisplay_OGL_Helpers.h"
 #include "RageException.h"
@@ -1054,6 +1055,36 @@ int RageDisplay_Legacy::GetMaxTextureSize() const {
   return size;
 }
 
+// Utils/RenderTest: copy each frame from the back buffer before it's presented
+// and take screenshots from that copy. Reading the front buffer afterwards
+// returns black under Xvfb with Mesa. Costs a readback every frame.
+static Preference<bool> g_bScreenshotBackBuffer("ScreenshotBackBuffer", false);
+static RageSurface* g_pLastFrame = nullptr;
+
+// Reads a window color buffer (GL_FRONT or GL_BACK) into image, bottom row
+// first. Allocates a new RGBA8 surface if image is null or the wrong size.
+static RageSurface* ReadWindowPixels(
+    GLenum buffer, RageSurface* image, int width, int height) {
+  if (image != nullptr && (image->w != width || image->h != height)) {
+    delete image;
+    image = nullptr;
+  }
+  if (image == nullptr) {
+    const RageDisplay::RagePixelFormatDesc& desc =
+        PIXEL_FORMAT_DESC[RagePixelFormat_RGBA8];
+    image = CreateSurface(
+        width, height, desc.bpp, desc.masks[0], desc.masks[1], desc.masks[2],
+        0);
+  }
+
+  DebugFlushGLErrors();
+  glReadBuffer(buffer);
+  DebugAssertNoGLError();
+  glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, image->pixels);
+  DebugAssertNoGLError();
+  return image;
+}
+
 bool RageDisplay_Legacy::BeginFrame() {
   // Anything outside RageDisplay may have touched GL. Texture params live on
   // the texture objects and are only changed through this file, so they are
@@ -1097,6 +1128,12 @@ void RageDisplay_Legacy::EndFrame() {
     CameraPopMatrix();
   }
 
+  if (g_bScreenshotBackBuffer && !UseOffscreenRenderTarget()) {
+    g_pLastFrame = ReadWindowPixels(
+        GL_BACK, g_pLastFrame, GetActualVideoModeParams().width,
+        GetActualVideoModeParams().height);
+  }
+
   FrameLimitBeforeVsync();
   g_pWind->SwapBuffers();
   FrameLimitAfterVsync();
@@ -1130,25 +1167,14 @@ RageSurface* RageDisplay_Legacy::CreateScreenshot() {
         raw->fmt.Rmask, raw->fmt.Gmask, raw->fmt.Bmask, raw->fmt.Amask);
     RageSurfaceUtils::Blit(raw, image);
     delete raw;
+  } else if (g_bScreenshotBackBuffer && g_pLastFrame != nullptr) {
+    image = g_pLastFrame;  // the caller owns it; EndFrame makes a new one
+    g_pLastFrame = nullptr;
+    RageSurfaceUtils::FlipVertically(image);
   } else {
-    const RagePixelFormatDesc& desc = PIXEL_FORMAT_DESC[RagePixelFormat_RGBA8];
-    image = CreateSurface(
-        width, height, desc.bpp, desc.masks[0], desc.masks[1], desc.masks[2],
-        0);
-
-    DebugFlushGLErrors();
-
     // TODO: revisit for MacOS, where backbuffer size can be less than window
     // size
-    glReadBuffer(GL_FRONT);
-    DebugAssertNoGLError();
-
-    glReadPixels(
-        0, 0, g_pWind->GetActualVideoModeParams().width,
-        g_pWind->GetActualVideoModeParams().height, GL_RGBA, GL_UNSIGNED_BYTE,
-        image->pixels);
-    DebugAssertNoGLError();
-
+    image = ReadWindowPixels(GL_FRONT, nullptr, width, height);
     RageSurfaceUtils::FlipVertically(image);
   }
 

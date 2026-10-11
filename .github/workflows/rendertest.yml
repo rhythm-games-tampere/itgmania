@@ -84,7 +84,9 @@ jobs:
       - name: Run
         shell: bash
         run: |
-          cmd="python Utils/RenderTest/rendertest.py run --out rendertest-out --timeout 1500"
+          # Runner desktops are about 1024x768, and perf numbers from software
+          # renderers mean nothing.
+          cmd="python Utils/RenderTest/rendertest.py run --out rendertest-out --timeout 1500 --size 960x540 --no-perf"
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a -s "-screen 0 1920x1080x24" $cmd
           else
