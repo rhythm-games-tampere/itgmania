@@ -56,6 +56,15 @@ static std::string GetNewWindow() {
   return sName;
 }
 
+// WM_COPYDATA from ArchHooks_Win32::CheckForMultipleInstances.
+static void QueueCommandLine(LPARAM lParam) {
+  PCOPYDATASTRUCT pMyCDS = (PCOPYDATASTRUCT)lParam;
+  std::string sCommandLine((char*)pMyCDS->lpData, pMyCDS->cbData);
+  CommandLineActions::CommandLineArgs args;
+  split(sCommandLine, "|", args.argv, false);
+  CommandLineActions::ToProcess.push_back(args);
+}
+
 static LRESULT CALLBACK
 GraphicsWindow_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
   CHECKPOINT_M(ssprintf("%p, %u, %08x, %08x", hWnd, msg, wParam, lParam));
@@ -178,14 +187,9 @@ GraphicsWindow_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
       }
       break;
     }
-    case WM_COPYDATA: {
-      PCOPYDATASTRUCT pMyCDS = (PCOPYDATASTRUCT)lParam;
-      std::string sCommandLine((char*)pMyCDS->lpData, pMyCDS->cbData);
-      CommandLineActions::CommandLineArgs args;
-      split(sCommandLine, "|", args.argv, false);
-      CommandLineActions::ToProcess.push_back(args);
+    case WM_COPYDATA:
+      QueueCommandLine(lParam);
       break;
-    }
   }
 
   CHECKPOINT_M(ssprintf("%p, %u, %08x, %08x", hWnd, msg, wParam, lParam));
@@ -557,6 +561,25 @@ void GraphicsWindow::Update() {
 }
 
 HWND GraphicsWindow::GetHwnd() { return g_hWndMain; }
+
+static WNDPROC g_AdoptedWndProc = nullptr;
+
+static LRESULT CALLBACK
+AdoptedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+  if (msg == WM_COPYDATA) {
+    QueueCommandLine(lParam);
+  }
+  return CallWindowProc(g_AdoptedWndProc, hWnd, msg, wParam, lParam);
+}
+
+void GraphicsWindow::AdoptWindow(HWND hWnd) {
+  g_hWndMain = hWnd;
+  CrashHandler::SetForegroundWindow(hWnd);
+  if (hWnd != nullptr) {
+    g_AdoptedWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(
+        hWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(AdoptedWndProc)));
+  }
+}
 
 void GraphicsWindow::GetDisplaySpecs(DisplaySpecs& out) {
   auto resetDeviceMode = [=](DEVMODE& mode) {

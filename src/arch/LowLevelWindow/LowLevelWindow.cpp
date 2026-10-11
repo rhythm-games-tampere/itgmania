@@ -1,8 +1,19 @@
 #include "LowLevelWindow.h"
 
+#include "Preference.h"
+#include "RageUtil.h"
+#include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "arch/arch_default.h"
 
-LowLevelWindow* LowLevelWindow::Create() { return new ARCH_LOW_LEVEL_WINDOW; }
+static Preference<std::string> g_sWindowDriver(
+    "WindowDriver", "");  // "" == ARCH_LOW_LEVEL_WINDOW, or "SDL"
+
+LowLevelWindow* LowLevelWindow::Create() {
+  if (CompareNoCase(g_sWindowDriver.Get(), "SDL") == 0) {
+    return new LowLevelWindow_SDL;
+  }
+  return new ARCH_LOW_LEVEL_WINDOW;
+}
 
 /*
  * (c) 2002-2005 Glenn Maynard

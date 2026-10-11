@@ -126,8 +126,10 @@ source_group("Arch Specific\\\\Memory Card"
              ${SMDATA_ARCH_MEMORY_SRC}
              ${SMDATA_ARCH_MEMORY_HPP})
 
-list(APPEND SMDATA_ARCH_LOWLEVEL_SRC "arch/LowLevelWindow/LowLevelWindow.cpp")
-list(APPEND SMDATA_ARCH_LOWLEVEL_HPP "arch/LowLevelWindow/LowLevelWindow.h")
+list(APPEND SMDATA_ARCH_LOWLEVEL_SRC "arch/LowLevelWindow/LowLevelWindow.cpp"
+            "arch/LowLevelWindow/LowLevelWindow_SDL.cpp")
+list(APPEND SMDATA_ARCH_LOWLEVEL_HPP "arch/LowLevelWindow/LowLevelWindow.h"
+            "arch/LowLevelWindow/LowLevelWindow_SDL.h")
 
 if(WIN32)
   list(APPEND SMDATA_ARCH_LOWLEVEL_SRC

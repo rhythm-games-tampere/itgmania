@@ -39,6 +39,11 @@ HDC GetHDC();
 void Update();
 
 HWND GetHwnd();
+
+/** @brief Use a window made elsewhere (LowLevelWindow_SDL) as the main window:
+ * GetHwnd returns it, and it receives other instances' command lines. Pass
+ * nullptr before destroying it. */
+void AdoptWindow(HWND hWnd);
 };  // namespace GraphicsWindow
 
 #endif
