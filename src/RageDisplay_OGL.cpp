@@ -2654,10 +2654,44 @@ uintptr_t RageDisplay_Legacy::GetRenderTarget() {
   return 0;
 }
 
+// Targets a render target was started inside of, innermost last (an
+// ActorFrameTexture drawn into the offscreen frame of RenderOffscreen).
+static std::vector<RenderTarget*> g_vOuterRenderTargets;
+
 void RageDisplay_Legacy::SetRenderTarget(
     uintptr_t iTexture, bool bPreserveTexture) {
   InvalidateGLStateCache();
+  RenderTarget* pTarget = nullptr;
+  if (iTexture != 0) {
+    ASSERT(g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end());
+    pTarget = g_mapRenderTargets[iTexture];
+  }
+
+  // Back to the outer target (RageTextureRenderTarget::FinishRenderingTo):
+  // undo the inner target's camera push and carry on drawing where the outer
+  // one left off, without resetting its state or clearing it.
+  if (pTarget != nullptr && !g_vOuterRenderTargets.empty() &&
+      g_vOuterRenderTargets.back() == pTarget) {
+    g_vOuterRenderTargets.pop_back();
+    DISPLAY->CameraPopMatrix();
+    g_pCurrentRenderTarget->FinishRenderingTo();
+    pTarget->StartRenderingTo();
+    g_pCurrentRenderTarget = pTarget;
+    glViewport(0, 0, pTarget->GetParam().iWidth, pTarget->GetParam().iHeight);
+    g_bInvertY = pTarget->InvertY();
+    glFrontFace(g_bInvertY ? GL_CW : GL_CCW);
+    return;
+  }
+
+  // A target started inside another: keep the outer one's camera push.
+  if (pTarget != nullptr && g_pCurrentRenderTarget != nullptr) {
+    g_vOuterRenderTargets.push_back(g_pCurrentRenderTarget);
+    g_pCurrentRenderTarget->FinishRenderingTo();
+    g_pCurrentRenderTarget = nullptr;
+  }
+
   if (iTexture == 0) {
+    g_vOuterRenderTargets.clear();
     g_bInvertY = false;
     glFrontFace(GL_CCW);
 
@@ -2676,14 +2710,7 @@ void RageDisplay_Legacy::SetRenderTarget(
     return;
   }
 
-  /* If we already had a render target, disable it. */
-  if (g_pCurrentRenderTarget != nullptr) {
-    SetRenderTarget(0, true);
-  }
-
   /* Enable the new render target. */
-  ASSERT(g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end());
-  RenderTarget* pTarget = g_mapRenderTargets[iTexture];
   pTarget->StartRenderingTo();
   g_pCurrentRenderTarget = pTarget;
 
