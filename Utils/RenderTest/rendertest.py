@@ -128,8 +128,8 @@ def setup_root(renderer):
         exe = app / "Contents" / "MacOS" / "ITGmania"
     else:
         # The game uses the binary's directory as its root, so copy it.
-        exe = root / "ITGmania"
-        shutil.copy(REPO / "ITGmania", exe)
+        exe = root / "itgmania"  # lowercase on Linux
+        shutil.copy(REPO / "itgmania", exe)
     make_character(root)
     (root / "Portable.ini").touch()
     for d in ("Logs", "Screenshots"):  # real directories, safe to clear
