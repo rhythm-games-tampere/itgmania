@@ -401,7 +401,8 @@ list(APPEND SMDATA_LINK_LIB "mad"
                             "ogg"
                             "ixwebsocket"
                             "hidapi"
-                            "lsqlite3")
+                            "lsqlite3"
+                            "SDL3::SDL3-static")
 
 if(WIN32)
   list(APPEND SMDATA_LINK_LIB

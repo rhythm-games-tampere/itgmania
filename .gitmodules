@@ -46,3 +46,7 @@
 	path = extern/stb
 	url = https://github.com/nothings/stb
 	shallow = true
+[submodule "extern/SDL"]
+	path = extern/SDL
+	url = https://github.com/libsdl-org/SDL.git
+	shallow = true
