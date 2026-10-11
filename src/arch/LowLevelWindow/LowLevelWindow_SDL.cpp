@@ -91,6 +91,12 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     RageException::Throw("SDL_Init failed: %s", SDL_GetError());
   }
+  // Off until InputHandler_SDL takes them.
+  for (Uint32 type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
+                      SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN,
+                      SDL_EVENT_MOUSE_BUTTON_UP, SDL_EVENT_MOUSE_WHEEL}) {
+    SDL_SetEventEnabled(type, false);
+  }
 }
 
 LowLevelWindow_SDL::~LowLevelWindow_SDL() {
@@ -298,9 +304,19 @@ void LowLevelWindow_SDL::Update() {
     SDL_HideCursor();
   }
 
+  // Quit, display and window events are ours; keyboard through joystick
+  // events are InputHandler_SDL's. Drop the rest, and input events too if no
+  // InputHandler_SDL turned them on.
   bool bResized = false;
+  SDL_PumpEvents();
+  SDL_FlushEvents(SDL_EVENT_GAMEPAD_AXIS_MOTION, SDL_EVENT_LAST);
+  if (!SDL_EventEnabled(SDL_EVENT_KEY_DOWN)) {
+    SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_GAMEPAD_AXIS_MOTION - 1);
+  }
   SDL_Event e;
-  while (SDL_PollEvent(&e)) {
+  while (SDL_PeepEvents(
+             &e, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_KEY_DOWN - 1) >
+         0) {
     switch (e.type) {
       case SDL_EVENT_QUIT:
       case SDL_EVENT_WINDOW_CLOSE_REQUESTED:

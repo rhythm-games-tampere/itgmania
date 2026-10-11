@@ -3,6 +3,7 @@
 #include "InputFilter.h"
 #include "InputHandler_MonkeyKeyboard.h"
 #include "LocalizedString.h"
+#include "Preference.h"
 #include "RageException.h"
 #include "RageInputDevice.h"
 #include "RageLog.h"
@@ -244,11 +245,30 @@ DriverList InputHandler::m_pDriverList;
 
 static LocalizedString INPUT_HANDLERS_EMPTY(
     "Arch", "Input Handlers cannot be empty.");
+// With the SDL window (WindowDriver=SDL), SDL also reads the keyboard, mouse
+// and joysticks, in place of the platform handlers for them. LinuxEvent and
+// LinuxJoystick go too: their joystick numbers would collide with SDL's.
+static std::vector<std::string> DefaultInputDrivers() {
+  std::vector<std::string> drivers = GetDefaultInputDriverList();
+  IPreference* pWindowDriver = IPreference::GetPreferenceByName("WindowDriver");
+  if (pWindowDriver == nullptr ||
+      CompareNoCase(pWindowDriver->ToString(), "SDL") != 0) {
+    return drivers;
+  }
+  std::vector<std::string> out = {"SDL"};
+  for (const std::string& s : drivers) {
+    if (s != "DirectInput" && s != "HID" && s != "X11" && s != "LinuxEvent" &&
+        s != "LinuxJoystick") {
+      out.push_back(s);
+    }
+  }
+  return out;
+}
+
 void InputHandler::Create(
     const std::string& drivers_, std::vector<InputHandler*>& add) {
-  const std::vector<std::string>& driversToTry =
-      drivers_.empty() ? GetDefaultInputDriverList()
-                       : split(drivers_, ',', true);
+  const std::vector<std::string> driversToTry =
+      drivers_.empty() ? DefaultInputDrivers() : split(drivers_, ',', true);
 
   if (driversToTry.empty()) {
     RageException::Throw("%s", INPUT_HANDLERS_EMPTY.GetValue().c_str());
