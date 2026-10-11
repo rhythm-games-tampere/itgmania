@@ -442,12 +442,90 @@ bool NeedsNormals() {
   glGetBooleanv(GL_TEXTURE_GEN_T, &bTextureGenT);
   return bLighting || bTextureGenS || bTextureGenT;
 }
-}  // namespace
 
-static void TurnOffHardwareVBO() {
-  CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, 0);
-  CacheBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer, 0);
+/* Bumped when TryVideoMode creates a new GL context; buffers made in the old
+ * one are gone. */
+int g_iContextGeneration = 0;
+
+/* GPU buffers for immediate (sprite) draws. thread_local like g_cache: each
+ * rendering thread has its own context, write offset and buffers. */
+struct StreamBuffers {
+  int generation = -1;
+  // Persistently mapped ring (ARB_buffer_storage), split into quarters with a
+  // fence each, so a quarter is only rewritten once the GPU is done with it.
+  GLuint ring = 0;
+  char* mapped = nullptr;
+  GLsizeiptr offset = 0;
+  int quarter = 0;
+  GLsync fences[4] = {};
+  // Without buffer storage, or for draws bigger than a quarter: respecified
+  // with glBufferData every draw, which the driver orphans.
+  GLuint dynamic = 0;
+  GLuint symmetric_ibo = 0;  // DrawSymmetricQuadStrip's index pattern
+  int symmetric_pieces = 0;
+};
+thread_local StreamBuffers g_stream;
+constexpr GLsizeiptr kStreamRingSize = 4 << 20;
+
+void CheckStreamGeneration() {
+  if (g_stream.generation == g_iContextGeneration) {
+    return;
+  }
+  // Old names belonged to a destroyed context; don't delete them, they may
+  // already name something else.
+  g_stream = StreamBuffers();
+  g_stream.generation = g_iContextGeneration;
+  glGenBuffers(1, &g_stream.dynamic);
+  if (GLEW_ARB_buffer_storage && GLEW_ARB_sync) {
+    const GLbitfield flags =
+        GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+    glGenBuffers(1, &g_stream.ring);
+    CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.ring);
+    glBufferStorage(GL_ARRAY_BUFFER, kStreamRingSize, nullptr, flags);
+    g_stream.mapped = static_cast<char*>(
+        glMapBufferRange(GL_ARRAY_BUFFER, 0, kStreamRingSize, flags));
+  }
 }
+
+/* Copies data into a stream buffer, leaves that bound to GL_ARRAY_BUFFER and
+ * returns the data's offset in it. */
+GLintptr StreamUpload(const void* data, GLsizeiptr size) {
+  constexpr GLsizeiptr kQuarter = kStreamRingSize / 4;
+  CheckStreamGeneration();
+  CountGL(RenderProfiler::kGLVertexSetup);
+  if (!g_stream.mapped || size > kQuarter) {
+    CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.dynamic);
+    glBufferData(GL_ARRAY_BUFFER, size, data, GL_STREAM_DRAW);
+    return 0;
+  }
+
+  // Keep each draw inside one quarter.
+  GLsizeiptr at = g_stream.offset;
+  if (at + size > kStreamRingSize) {
+    at = 0;
+  } else if (at / kQuarter != (at + size - 1) / kQuarter) {
+    at = (at / kQuarter + 1) * kQuarter;
+  }
+  const int quarter = static_cast<int>(at / kQuarter);
+  if (quarter != g_stream.quarter) {
+    // Fence the quarter we're leaving; wait for the one we're entering. The
+    // GPU is normally a frame or two behind; a quarter holds many frames.
+    g_stream.fences[g_stream.quarter] =
+        glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    g_stream.quarter = quarter;
+    if (GLsync& fence = g_stream.fences[quarter]) {
+      CountGL(RenderProfiler::kGLGet);
+      glClientWaitSync(fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);
+      glDeleteSync(fence);
+      fence = nullptr;
+    }
+  }
+  memcpy(g_stream.mapped + at, data, size);
+  g_stream.offset = at + size;
+  CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.ring);
+  return at;
+}
+}  // namespace
 
 RageDisplay_Legacy::RageDisplay_Legacy() {
   LOG->Trace("RageDisplay_Legacy::RageDisplay_Legacy()");
@@ -896,6 +974,7 @@ std::string RageDisplay_Legacy::TryVideoMode(
     g_mapRenderTargets.clear();
 
     /* Recreate all vertex buffers. */
+    ++g_iContextGeneration;
     InvalidateObjects();
 
     InitShaders();
@@ -1129,48 +1208,29 @@ static void SetVertexArrays(
   glNormalPointer(GL_FLOAT, normal_stride, normal);
 }
 
+// Uploads v to the stream VBO and points the arrays at it.
 static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
-  static const bool bInterleaveColor =
+  static const bool bBGRA =
       !!GLEW_ARB_vertex_array_bgra || !!GLEW_EXT_vertex_array_bgra;
-  if (bInterleaveColor) {
-    const GLsizei stride = sizeof(RageSpriteVertex);
-    SetVertexArrays(
-        &v[0].p, stride, &v[0].c, GL_BGRA, stride, &v[0].t, stride, &v[0].n,
-        stride);
-    return;
+  if (!bBGRA) {
+    // No GL_BGRA vertex arrays: upload a copy with red and blue swapped.
+    thread_local std::vector<RageSpriteVertex> vSwapped;
+    vSwapped.assign(v, v + iNumVerts);
+    for (RageSpriteVertex& sv : vSwapped) {
+      std::swap(sv.c.r, sv.c.b);
+    }
+    v = vSwapped.data();
   }
 
-  // Convert from BGRA -> RGBA for drivers without GL_BGRA vertex arrays.
-  static float *Vertex, *Texture, *Normal;
-  static GLubyte* Color;
-  static int Size = 0;
-  if (iNumVerts > Size) {
-    Size = iNumVerts;
-    delete[] Vertex;
-    delete[] Color;
-    delete[] Texture;
-    delete[] Normal;
-    Vertex = new float[Size * 3];
-    Color = new GLubyte[Size * 4];
-    Texture = new float[Size * 2];
-    Normal = new float[Size * 3];
-  }
-
-  for (unsigned i = 0; i < unsigned(iNumVerts); ++i) {
-    Vertex[i * 3 + 0] = v[i].p[0];
-    Vertex[i * 3 + 1] = v[i].p[1];
-    Vertex[i * 3 + 2] = v[i].p[2];
-    Color[i * 4 + 0] = v[i].c.r;
-    Color[i * 4 + 1] = v[i].c.g;
-    Color[i * 4 + 2] = v[i].c.b;
-    Color[i * 4 + 3] = v[i].c.a;
-    Texture[i * 2 + 0] = v[i].t[0];
-    Texture[i * 2 + 1] = v[i].t[1];
-    Normal[i * 3 + 0] = v[i].n[0];
-    Normal[i * 3 + 1] = v[i].n[1];
-    Normal[i * 3 + 2] = v[i].n[2];
-  }
-  SetVertexArrays(Vertex, 0, Color, GL_RGBA, 0, Texture, 0, Normal, 0);
+  const GLsizei stride = sizeof(RageSpriteVertex);
+  // In a bound buffer, the array "pointers" are byte offsets into it.
+  const char* base = reinterpret_cast<const char*>(
+      StreamUpload(v, GLsizeiptr(iNumVerts) * stride));
+  SetVertexArrays(
+      base + offsetof(RageSpriteVertex, p), stride,
+      base + offsetof(RageSpriteVertex, c), bBGRA ? GL_BGRA : GL_RGBA, stride,
+      base + offsetof(RageSpriteVertex, t), stride,
+      base + offsetof(RageSpriteVertex, n), stride);
 }
 
 void RageDisplay_Legacy::SendCurrentMatrices() {
@@ -1465,6 +1525,9 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
 
   CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, false);
 
+  // Unit 2's array may still point into the sprite stream buffer, with the
+  // sprite stride; mesh indices would read past what was written there.
+  CacheTexCoordArray(TextureUnit_2, false);
   CacheTexCoordArray(0, true);
   CacheClientUnit(0);
   CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, m_nTextureCoords);
@@ -1560,7 +1623,6 @@ void RageDisplay_Legacy::DeleteCompiledGeometry(RageCompiledGeometry* p) {
 
 void RageDisplay_Legacy::DrawQuadsInternal(
     const RageSpriteVertex v[], int iNumVerts) {
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
@@ -1569,7 +1631,6 @@ void RageDisplay_Legacy::DrawQuadsInternal(
 
 void RageDisplay_Legacy::DrawQuadStripInternal(
     const RageSpriteVertex v[], int iNumVerts) {
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
@@ -1582,37 +1643,48 @@ void RageDisplay_Legacy::DrawSymmetricQuadStripInternal(
   int iNumTriangles = iNumPieces * 4;
   int iNumIndices = iNumTriangles * 3;
 
-  // make a temporary index buffer
-  static std::vector<uint16_t> vIndices;
-  unsigned uOldSize = vIndices.size();
-  unsigned uNewSize = std::max(uOldSize, (unsigned)iNumIndices);
-  vIndices.resize(uNewSize);
-  for (uint16_t i = (uint16_t)uOldSize / 12; i < (uint16_t)iNumPieces; i++) {
-    // { 1, 3, 0 } { 1, 4, 3 } { 1, 5, 4 } { 1, 2, 5 }
-    vIndices[i * 12 + 0] = i * 3 + 1;
-    vIndices[i * 12 + 1] = i * 3 + 3;
-    vIndices[i * 12 + 2] = i * 3 + 0;
-    vIndices[i * 12 + 3] = i * 3 + 1;
-    vIndices[i * 12 + 4] = i * 3 + 4;
-    vIndices[i * 12 + 5] = i * 3 + 3;
-    vIndices[i * 12 + 6] = i * 3 + 1;
-    vIndices[i * 12 + 7] = i * 3 + 5;
-    vIndices[i * 12 + 8] = i * 3 + 4;
-    vIndices[i * 12 + 9] = i * 3 + 1;
-    vIndices[i * 12 + 10] = i * 3 + 2;
-    vIndices[i * 12 + 11] = i * 3 + 5;
+  // The index pattern only depends on the piece count, so it lives in an
+  // element buffer that grows when a longer strip comes along.
+  CheckStreamGeneration();
+  if (iNumPieces > g_stream.symmetric_pieces) {
+    std::vector<uint16_t> vIndices(iNumIndices);
+    for (uint16_t i = 0; i < (uint16_t)iNumPieces; i++) {
+      // { 1, 3, 0 } { 1, 4, 3 } { 1, 5, 4 } { 1, 2, 5 }
+      vIndices[i * 12 + 0] = i * 3 + 1;
+      vIndices[i * 12 + 1] = i * 3 + 3;
+      vIndices[i * 12 + 2] = i * 3 + 0;
+      vIndices[i * 12 + 3] = i * 3 + 1;
+      vIndices[i * 12 + 4] = i * 3 + 4;
+      vIndices[i * 12 + 5] = i * 3 + 3;
+      vIndices[i * 12 + 6] = i * 3 + 1;
+      vIndices[i * 12 + 7] = i * 3 + 5;
+      vIndices[i * 12 + 8] = i * 3 + 4;
+      vIndices[i * 12 + 9] = i * 3 + 1;
+      vIndices[i * 12 + 10] = i * 3 + 2;
+      vIndices[i * 12 + 11] = i * 3 + 5;
+    }
+    if (!g_stream.symmetric_ibo) {
+      glGenBuffers(1, &g_stream.symmetric_ibo);
+    }
+    CacheBindBuffer(
+        GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer,
+        g_stream.symmetric_ibo);
+    glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER, vIndices.size() * sizeof(uint16_t),
+        vIndices.data(), GL_STATIC_DRAW);
+    g_stream.symmetric_pieces = iNumPieces;
   }
 
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
-  glDrawElements(GL_TRIANGLES, iNumIndices, GL_UNSIGNED_SHORT, &vIndices[0]);
+  CacheBindBuffer(
+      GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer, g_stream.symmetric_ibo);
+  glDrawElements(GL_TRIANGLES, iNumIndices, GL_UNSIGNED_SHORT, nullptr);
 }
 
 void RageDisplay_Legacy::DrawFanInternal(
     const RageSpriteVertex v[], int iNumVerts) {
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
@@ -1621,7 +1693,6 @@ void RageDisplay_Legacy::DrawFanInternal(
 
 void RageDisplay_Legacy::DrawStripInternal(
     const RageSpriteVertex v[], int iNumVerts) {
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
@@ -1630,7 +1701,6 @@ void RageDisplay_Legacy::DrawStripInternal(
 
 void RageDisplay_Legacy::DrawTrianglesInternal(
     const RageSpriteVertex v[], int iNumVerts) {
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   SetupVertices(v, iNumVerts);
@@ -1639,7 +1709,6 @@ void RageDisplay_Legacy::DrawTrianglesInternal(
 
 void RageDisplay_Legacy::DrawCompiledGeometryInternal(
     const RageCompiledGeometry* p, int iMeshIndex) {
-  TurnOffHardwareVBO();
   SendCurrentMatrices();
 
   p->Draw(iMeshIndex);
@@ -1647,8 +1716,6 @@ void RageDisplay_Legacy::DrawCompiledGeometryInternal(
 
 void RageDisplay_Legacy::DrawLineStripInternal(
     const RageSpriteVertex v[], int iNumVerts, float fLineWidth) {
-  TurnOffHardwareVBO();
-
   if (!GetActualVideoModeParams().bSmoothLines) {
     /* Fall back on the generic polygon-based line strip. */
     RageDisplay::DrawLineStripInternal(v, iNumVerts, fLineWidth);
@@ -1715,7 +1782,7 @@ void RageDisplay_Legacy::DrawLineStripInternal(
 
   glEnable(GL_POINT_SMOOTH);
 
-  SetupVertices(v, iNumVerts);
+  // The arrays still point at the line strip's vertices.
   glDrawArrays(GL_POINTS, 0, iNumVerts);
   StatsAddVerts(iNumVerts);
 
