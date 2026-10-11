@@ -198,9 +198,13 @@ def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None):
                         width=width, height=height)
     if theme:
         text = text.replace("Theme=RenderTest", "Theme=" + setup_theme(root, theme))
-    # Extra [Options] lines from --pref go right after the section header.
-    extra = "".join(p + "\n" for p in extra_prefs)
-    text = text.replace("[Options]\n", "[Options]\n" + extra, 1)
+    # --pref replaces a key the template sets, or goes right after [Options].
+    for p in extra_prefs:
+        key = p.split("=", 1)[0]
+        text, n = re.subn(rf"^{re.escape(key)}=.*$", lambda m: p, text,
+                          count=1, flags=re.M)
+        if not n:
+            text = text.replace("[Options]\n", "[Options]\n" + p + "\n", 1)
     prefs.write_text(text)
     (root / "Save" / "RenderTest.ini").write_text(
         f"[RenderTest]\nSkipPerf={int(skip_perf)}\n")
