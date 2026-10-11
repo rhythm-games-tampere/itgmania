@@ -110,11 +110,7 @@ InputHandler_SDL::InputHandler_SDL() {
   // Keys from SDL's raw input thread, timestamped as they arrive; window
   // messages only carry GetMessageTime's ~16 ms ticks.
   SDL_SetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD, "1");
-#if !defined(MACOSX)
-  // ponytail: on macOS, IOKit joystick callbacks run on the main thread's run
-  // loop, so SDL updates them while pumping events, once a frame.
   SDL_SetHint(SDL_HINT_AUTO_UPDATE_JOYSTICKS, "0");
-#endif
   if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
     LOG->Warn("SDL joystick init failed: %s", SDL_GetError());
   }
@@ -131,10 +127,8 @@ InputHandler_SDL::InputHandler_SDL() {
   }
   SDL_free(pIds);
 
-#if !defined(MACOSX)
   m_JoystickThread.SetName("SDL joystick thread");
   m_JoystickThread.Create(JoystickThread_Start, this);
-#endif
 }
 
 InputHandler_SDL::~InputHandler_SDL() {
@@ -193,6 +187,12 @@ void InputHandler_SDL::Update() {
   }
   m_bHadFocus = bFocus;
 
+#if defined(MACOSX)
+  // The joystick thread reads values (IOHIDDeviceGetValue works on any
+  // thread), but IOKit's hotplug callbacks only run in the run loop of the
+  // thread that started the joystick subsystem: this one.
+  SDL_UpdateJoysticks();
+#endif
   SDL_PumpEvents();
   SDL_Event e;
   while (SDL_PeepEvents(
