@@ -1,5 +1,4 @@
 #include "Player.h"
-#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <climits>
@@ -46,6 +45,7 @@
 #include "RageSoundManager.h"
 #include "RageUtil.h"
 #include "RageUtil/RandomNumbers.h"
+#include "RenderProfiler.h"
 #include "ScoreDisplay.h"
 #include "ScoreKeeperNormal.h"
 #include "ScreenDimensions.h"

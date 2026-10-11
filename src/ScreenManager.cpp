@@ -60,7 +60,6 @@
  */
 
 #include "ScreenManager.h"
-#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <map>
@@ -82,6 +81,7 @@
 #include "RageTextureManager.h"
 #include "RageTimer.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "Screen.h"
 #include "ScreenDimensions.h"
 #include "ScreenMessage.h"
@@ -526,8 +526,9 @@ void ScreenManager::Draw() {
     overlayScreen->Draw();
   }
 
-  RenderProfiler::Scope prof("Present (EndFrame)", RenderProfiler::kNamed,
-                             RenderProfiler::kSlotPresent);
+  RenderProfiler::Scope prof(
+      "Present (EndFrame)", RenderProfiler::kNamed,
+      RenderProfiler::kSlotPresent);
   DISPLAY->EndFrame();
 }
 

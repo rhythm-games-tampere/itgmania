@@ -1,5 +1,4 @@
 #include "GameLoop.h"
-#include "RenderProfiler.h"
 
 #include <cmath>
 #include <string>
@@ -23,6 +22,7 @@
 #include "RageThreads.h"
 #include "RageTimer.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "ScreenManager.h"
 #include "SyncStartManager.h"
 #include "ThemeManager.h"
@@ -320,16 +320,16 @@ void GameLoop::RunGameLoop() {
 
     RenderProfiler::FrameBegin();
     {
-      RenderProfiler::Scope prof("Update", RenderProfiler::kNamed,
-                                 RenderProfiler::kSlotUpdate);
+      RenderProfiler::Scope prof(
+          "Update", RenderProfiler::kNamed, RenderProfiler::kSlotUpdate);
       UpdateAllButDraw();
     }
 
     CallEveryNFrames(500, CheckInputDevices);
 
     {
-      RenderProfiler::Scope prof("Draw", RenderProfiler::kNamed,
-                                 RenderProfiler::kSlotDraw);
+      RenderProfiler::Scope prof(
+          "Draw", RenderProfiler::kNamed, RenderProfiler::kSlotDraw);
       SCREENMAN->Draw();
     }
     RenderProfiler::FrameEnd();

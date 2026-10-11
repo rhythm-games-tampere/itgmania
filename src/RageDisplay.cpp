@@ -1,5 +1,4 @@
 #include "RageDisplay.h"
-#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,6 +26,7 @@
 #include "RageTimer.h"
 #include "RageTypes.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "StdString.h"
 #include "arch/ArchHooks/ArchHooks.h"
 #include "global.h"

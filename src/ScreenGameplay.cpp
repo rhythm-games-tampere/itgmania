@@ -1,5 +1,4 @@
 #include "ScreenGameplay.h"
-#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -60,13 +59,14 @@
 #include "RageInputDevice.h"
 #include "RageLog.h"
 #include "RageSoundManager.h"
-#include "RageUtil/RandomNumbers.h"
 #include "RageSoundReader.h"
 #include "RageThreads.h"
 #include "RageTimer.h"
 #include "RageTypes.h"
 #include "RageUtil.h"
+#include "RageUtil/RandomNumbers.h"
 #include "RageUtil/Regex.h"
+#include "RenderProfiler.h"
 #include "ScoreDisplayLifeTime.h"
 #include "ScoreDisplayNormal.h"
 #include "ScoreDisplayOni.h"

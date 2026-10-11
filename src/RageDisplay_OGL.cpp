@@ -1,5 +1,4 @@
 #include "RageDisplay_OGL.h"
-#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -32,6 +31,7 @@
 #include "RageTypes.h"
 #include "RageUtil.h"
 #include "RageUtil/Endian.h"
+#include "RenderProfiler.h"
 #include "Sprite.h"
 #include "arch/LowLevelWindow/LowLevelWindow.h"
 #include "global.h"
@@ -309,21 +309,27 @@ void InvalidateGLStateCache() {
 }
 
 void CacheActiveUnit(int unit) {
-  if (g_cache.active_unit == unit) return;
+  if (g_cache.active_unit == unit) {
+    return;
+  }
   CountGL(RenderProfiler::kGLTexture);
   glActiveTexture(enum_add2(GL_TEXTURE0, unit));
   g_cache.active_unit = unit;
 }
 
 void CacheClientUnit(int unit) {
-  if (g_cache.client_unit == unit) return;
+  if (g_cache.client_unit == unit) {
+    return;
+  }
   CountGL(RenderProfiler::kGLVertexSetup);
   glClientActiveTexture(enum_add2(GL_TEXTURE0, unit));
   g_cache.client_unit = unit;
 }
 
 void CacheClientArray(GLenum array, int& cached, bool on) {
-  if (cached == static_cast<int>(on)) return;
+  if (cached == static_cast<int>(on)) {
+    return;
+  }
   CountGL(RenderProfiler::kGLVertexSetup);
   if (on) {
     glEnableClientState(array);
@@ -334,7 +340,9 @@ void CacheClientArray(GLenum array, int& cached, bool on) {
 }
 
 void CacheTexCoordArray(int unit, bool on) {
-  if (g_cache.arr_tex[unit] == static_cast<int>(on)) return;
+  if (g_cache.arr_tex[unit] == static_cast<int>(on)) {
+    return;
+  }
   CacheClientUnit(unit);
   CacheClientArray(GL_TEXTURE_COORD_ARRAY, g_cache.arr_tex[unit], on);
 }
@@ -342,18 +350,25 @@ void CacheTexCoordArray(int unit, bool on) {
 // Binds on the active unit, like glBindTexture.
 void CacheBindTexture(GLuint id) {
   int unit = g_cache.active_unit;
-  if (unit >= 0 && g_cache.bound_tex[unit] == id) return;
+  if (unit >= 0 && g_cache.bound_tex[unit] == id) {
+    return;
+  }
   CountGL(RenderProfiler::kGLTexture);
   glBindTexture(GL_TEXTURE_2D, id);
   if (unit >= 0) {
     g_cache.bound_tex[unit] = id;
   } else {
-    for (int64_t& b : g_cache.bound_tex) b = -1;
+    for (int64_t& b : g_cache.bound_tex) {
+      b = -1;
+    }
   }
 }
 
-void CacheEnable(GLenum cap, int& cached, bool on, RenderProfiler::GLStat stat) {
-  if (cached == static_cast<int>(on)) return;
+void CacheEnable(
+    GLenum cap, int& cached, bool on, RenderProfiler::GLStat stat) {
+  if (cached == static_cast<int>(on)) {
+    return;
+  }
   CountGL(stat);
   if (on) {
     glEnable(cap);
@@ -364,15 +379,19 @@ void CacheEnable(GLenum cap, int& cached, bool on, RenderProfiler::GLStat stat) 
 }
 
 void CacheMatrixMode(GLenum mode) {
-  if (g_cache.matrix_mode == static_cast<int>(mode)) return;
+  if (g_cache.matrix_mode == static_cast<int>(mode)) {
+    return;
+  }
   CountGL(RenderProfiler::kGLMatrix);
   glMatrixMode(mode);
   g_cache.matrix_mode = mode;
 }
 
-void CacheLoadMatrix(GLenum mode, const RageMatrix& m, RageMatrix& cached,
-                     bool& valid) {
-  if (valid && memcmp(&m, &cached, sizeof(RageMatrix)) == 0) return;
+void CacheLoadMatrix(
+    GLenum mode, const RageMatrix& m, RageMatrix& cached, bool& valid) {
+  if (valid && memcmp(&m, &cached, sizeof(RageMatrix)) == 0) {
+    return;
+  }
   CacheMatrixMode(mode);
   CountGL(RenderProfiler::kGLMatrix);
   glLoadMatrixf(reinterpret_cast<const float*>(&m));
@@ -381,14 +400,18 @@ void CacheLoadMatrix(GLenum mode, const RageMatrix& m, RageMatrix& cached,
 }
 
 void CacheBindBuffer(GLenum target, int64_t& cached, GLuint id) {
-  if (cached == id) return;
+  if (cached == id) {
+    return;
+  }
   CountGL(RenderProfiler::kGLVertexSetup);
   glBindBuffer(target, id);
   cached = id;
 }
 
 void CacheUseProgram(GLuint program) {
-  if (g_cache.program == program) return;
+  if (g_cache.program == program) {
+    return;
+  }
   CountGL(RenderProfiler::kGLOther);
   glUseProgram(program);
   g_cache.program = program;
@@ -400,13 +423,17 @@ void ForgetTextureMatrix() {
   if (g_cache.active_unit >= 0) {
     g_cache.tex_mat_valid[g_cache.active_unit] = false;
   } else {
-    for (bool& v : g_cache.tex_mat_valid) v = false;
+    for (bool& v : g_cache.tex_mat_valid) {
+      v = false;
+    }
   }
 }
 
 // True if lighting or texgen is (or may be) on; avoids glGet when known.
 bool NeedsNormals() {
-  if (g_cache.lighting == 1) return true;
+  if (g_cache.lighting == 1) {
+    return true;
+  }
   int unit = g_cache.active_unit;
   if (g_cache.lighting == 0 && unit >= 0 && g_cache.texgen[unit] >= 0) {
     return g_cache.texgen[unit] == 1;
@@ -528,8 +555,7 @@ GLuint LoadShader(
         GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Shell.frag", asDefines);
   } else if (sFile == "Data/Shaders/GLSL/Distance field.vert") {
     secondaryShader = CompileShader(
-        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Distance field.frag",
-        asDefines);
+        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Distance field.frag", asDefines);
   }
 
   GLuint hShader = CompileShader(ShaderType, sFile, asDefines);
@@ -588,8 +614,8 @@ void InitShaders() {
       asDefines);
 
   // these two are for dancing characters and are both actually shader pairs
-  g_gShellShader = LoadShader(
-      GL_VERTEX_SHADER, "Data/Shaders/GLSL/Shell.vert", asDefines);
+  g_gShellShader =
+      LoadShader(GL_VERTEX_SHADER, "Data/Shaders/GLSL/Shell.vert", asDefines);
   g_gCelShader =
       LoadShader(GL_VERTEX_SHADER, "Data/Shaders/GLSL/Cel.vert", asDefines);
   g_gDistanceFieldShader = LoadShader(
@@ -597,8 +623,7 @@ void InitShaders() {
 
   // effects
   g_bUnpremultiplyShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Unpremultiply.frag",
-      asDefines);
+      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Unpremultiply.frag", asDefines);
   g_bColorBurnShader = LoadShader(
       GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Color burn.frag", asDefines);
   g_bColorDodgeShader = LoadShader(
@@ -966,10 +991,10 @@ std::string RageDisplay_Legacy::TryVideoMode(
   // Everything below uses the GL 3.0 names for shaders, buffers and FBOs.
   // macOS compatibility contexts stop at 2.1, but provide the same calls
   // through ARB_framebuffer_object.
-  if (!GLEW_VERSION_3_0 &&
-      !(GLEW_VERSION_2_1 && GLEW_ARB_framebuffer_object)) {
-    return ssprintf("OpenGL 3.0 or newer is required; this driver provides %s.",
-                    reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+  if (!GLEW_VERSION_3_0 && !(GLEW_VERSION_2_1 && GLEW_ARB_framebuffer_object)) {
+    return ssprintf(
+        "OpenGL 3.0 or newer is required; this driver provides %s.",
+        reinterpret_cast<const char*>(glGetString(GL_VERSION)));
   }
 
   if (bNewDeviceOut) {
@@ -1163,18 +1188,18 @@ ActualVideoModeParams RageDisplay_Legacy::GetActualVideoModeParams() const {
 }
 
 // Points the client arrays at v. Arrays are only enabled/disabled on change.
-static void SetVertexArrays(const void* pos, GLsizei pos_stride,
-                            const void* color, GLenum color_type,
-                            GLsizei color_stride, const void* tex,
-                            GLsizei tex_stride, const void* normal,
-                            GLsizei normal_stride) {
+static void SetVertexArrays(
+    const void* pos, GLsizei pos_stride, const void* color, GLenum color_type,
+    GLsizei color_stride, const void* tex, GLsizei tex_stride,
+    const void* normal, GLsizei normal_stride) {
   CountGL(RenderProfiler::kGLVertexSetup, 4);
   CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
   glVertexPointer(3, GL_FLOAT, pos_stride, pos);
 
   CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, true);
-  glColorPointer(color_type == GL_BGRA ? GL_BGRA : 4, GL_UNSIGNED_BYTE,
-                 color_stride, color);
+  glColorPointer(
+      color_type == GL_BGRA ? GL_BGRA : 4, GL_UNSIGNED_BYTE, color_stride,
+      color);
 
   CacheTexCoordArray(0, true);
   CacheClientUnit(0);
@@ -1200,8 +1225,9 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
       !!GLEW_ARB_vertex_array_bgra || !!GLEW_EXT_vertex_array_bgra;
   if (bInterleaveColor) {
     const GLsizei stride = sizeof(RageSpriteVertex);
-    SetVertexArrays(&v[0].p, stride, &v[0].c, GL_BGRA, stride, &v[0].t, stride,
-                    &v[0].n, stride);
+    SetVertexArrays(
+        &v[0].p, stride, &v[0].c, GL_BGRA, stride, &v[0].t, stride, &v[0].n,
+        stride);
     return;
   }
 
@@ -1257,8 +1283,9 @@ void RageDisplay_Legacy::SendCurrentMatrices() {
   // The texture matrix belongs to the active texture unit.
   const int unit = g_cache.active_unit;
   if (unit >= 0) {
-    CacheLoadMatrix(GL_TEXTURE, *GetTextureTop(), g_cache.tex_mat[unit],
-                    g_cache.tex_mat_valid[unit]);
+    CacheLoadMatrix(
+        GL_TEXTURE, *GetTextureTop(), g_cache.tex_mat[unit],
+        g_cache.tex_mat_valid[unit]);
   } else {
     CacheMatrixMode(GL_TEXTURE);
     CountGL(RenderProfiler::kGLMatrix);
@@ -1427,15 +1454,15 @@ void RageCompiledGeometryHWOGL::UploadData() {
   glBindBuffer(GL_ARRAY_BUFFER, m_nTextureCoords);
   DebugAssertNoGLError();
   glBufferData(
-      GL_ARRAY_BUFFER, GetTotalVertices() * sizeof(RageVector2),
-      &m_vTexture[0], GL_STATIC_DRAW);
+      GL_ARRAY_BUFFER, GetTotalVertices() * sizeof(RageVector2), &m_vTexture[0],
+      GL_STATIC_DRAW);
   DebugAssertNoGLError();
 
   glBindBuffer(GL_ARRAY_BUFFER, m_nNormals);
   DebugAssertNoGLError();
   glBufferData(
-      GL_ARRAY_BUFFER, GetTotalVertices() * sizeof(RageVector3),
-      &m_vNormal[0], GL_STATIC_DRAW);
+      GL_ARRAY_BUFFER, GetTotalVertices() * sizeof(RageVector3), &m_vNormal[0],
+      GL_STATIC_DRAW);
   DebugAssertNoGLError();
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_nTriangles);
@@ -1815,8 +1842,9 @@ void RageDisplay_Legacy::SetTexture(TextureUnit tu, uintptr_t iTexture) {
     return;
   }
 
-  CacheEnable(GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0,
-              RenderProfiler::kGLTexture);
+  CacheEnable(
+      GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0,
+      RenderProfiler::kGLTexture);
   if (iTexture) {
     CacheBindTexture(static_cast<GLuint>(iTexture));
   }
@@ -1831,7 +1859,8 @@ void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
     return;
   }
   g_cache.tex_mode[tu] = tm;
-  RenderProfiler::CountGL(RenderProfiler::kGLTexture, tm == TextureMode_Glow ? 8 : 1);
+  RenderProfiler::CountGL(
+      RenderProfiler::kGLTexture, tm == TextureMode_Glow ? 8 : 1);
   switch (tm) {
     case TextureMode_Modulate:
       glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -1956,8 +1985,7 @@ void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
   glUniform1i(iTexture2, 1);
 
   if (effect == EffectMode_YUYV422) {
-    GLint iTextureWidthUniform =
-        glGetUniformLocation(hShader, "TextureWidth");
+    GLint iTextureWidthUniform = glGetUniformLocation(hShader, "TextureWidth");
     GLint iWidth;
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth);
     glUniform1i(iTextureWidthUniform, iWidth);
@@ -2295,7 +2323,9 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
   DebugFlushGLErrors();
   // Deleting a bound texture binds 0 in its place; ids get reused.
   for (int64_t& b : g_cache.bound_tex) {
-    if (b == static_cast<int64_t>(iTexture)) b = 0;
+    if (b == static_cast<int64_t>(iTexture)) {
+      b = 0;
+    }
   }
   g_tex_params.erase(static_cast<GLuint>(iTexture));
   glDeleteTextures(1, reinterpret_cast<GLuint*>(&iTexture));
@@ -2535,8 +2565,7 @@ struct RageTextureLock_OGL : public RageTextureLock, public InvalidateObject {
     int iSize = pSurface->h * pSurface->pitch;
     glBufferData(GL_PIXEL_UNPACK_BUFFER, iSize, nullptr, GL_STREAM_DRAW);
 
-    void* pSurfaceMemory =
-        glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+    void* pSurfaceMemory = glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
     pSurface->pixels = (uint8_t*)pSurfaceMemory;
     pSurface->pixels_owned = false;
   }
@@ -2643,12 +2672,10 @@ RenderTarget_FramebufferObject::RenderTarget_FramebufferObject() {
 
 RenderTarget_FramebufferObject::~RenderTarget_FramebufferObject() {
   if (m_iDepthBufferHandle) {
-    glDeleteRenderbuffers(
-        1, reinterpret_cast<GLuint*>(&m_iDepthBufferHandle));
+    glDeleteRenderbuffers(1, reinterpret_cast<GLuint*>(&m_iDepthBufferHandle));
   }
   if (m_iFrameBufferHandle) {
-    glDeleteFramebuffers(
-        1, reinterpret_cast<GLuint*>(&m_iFrameBufferHandle));
+    glDeleteFramebuffers(1, reinterpret_cast<GLuint*>(&m_iFrameBufferHandle));
   }
   if (m_iTexHandle) {
     glDeleteTextures(1, reinterpret_cast<GLuint*>(&m_iTexHandle));
@@ -2697,8 +2724,7 @@ void RenderTarget_FramebufferObject::Create(
   ASSERT(m_iFrameBufferHandle != 0);
 
   /* Attach the texture to it. */
-  glBindFramebuffer(
-      GL_FRAMEBUFFER, static_cast<GLuint>(m_iFrameBufferHandle));
+  glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(m_iFrameBufferHandle));
   glFramebufferTexture2D(
       GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
       static_cast<GLuint>(m_iTexHandle), 0);
@@ -2712,8 +2738,7 @@ void RenderTarget_FramebufferObject::Create(
     glBindRenderbuffer(
         GL_RENDERBUFFER, static_cast<GLuint>(m_iDepthBufferHandle));
     glRenderbufferStorage(
-        GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, iTextureWidth,
-        iTextureHeight);
+        GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, iTextureWidth, iTextureHeight);
     glFramebufferRenderbuffer(
         GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
         static_cast<GLuint>(m_iDepthBufferHandle));
@@ -2728,8 +2753,7 @@ void RenderTarget_FramebufferObject::Create(
 }
 
 void RenderTarget_FramebufferObject::StartRenderingTo() {
-  glBindFramebuffer(
-      GL_FRAMEBUFFER, static_cast<GLuint>(m_iFrameBufferHandle));
+  glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(m_iFrameBufferHandle));
 }
 
 void RenderTarget_FramebufferObject::FinishRenderingTo() {

@@ -18,7 +18,13 @@ namespace RenderProfiler {
 
 enum Kind { kUpdate, kDraw, kCommand, kNamed };
 // Named scopes that also feed the per-frame breakdown.
-enum FrameSlot { kSlotNone = -1, kSlotUpdate, kSlotDraw, kSlotPresent, kNumSlots };
+enum FrameSlot {
+  kSlotNone = -1,
+  kSlotUpdate,
+  kSlotDraw,
+  kSlotPresent,
+  kNumSlots
+};
 
 // GL backend work, counted per category (state calls actually issued).
 enum GLStat {
@@ -40,7 +46,9 @@ extern bool g_actor_scopes;
 extern int64_t g_gl[kNumGLStats];
 
 inline void CountGL(GLStat s, int n = 1) {
-  if (g_active) g_gl[s] += n;
+  if (g_active) {
+    g_gl[s] += n;
+  }
 }
 
 void Start();
@@ -56,10 +64,13 @@ const char* Intern(const std::string& s);
 struct Scope {
   bool pushed;
   Scope(const void* key, Kind kind, FrameSlot slot = kSlotNone)
-      : pushed(g_active && key != nullptr &&
-               (kind == kNamed || g_actor_scopes) && Push(key, kind, slot)) {}
+      : pushed(
+            g_active && key != nullptr && (kind == kNamed || g_actor_scopes) &&
+            Push(key, kind, slot)) {}
   ~Scope() {
-    if (pushed) Pop();
+    if (pushed) {
+      Pop();
+    }
   }
   Scope(const Scope&) = delete;
   Scope& operator=(const Scope&) = delete;
@@ -79,11 +90,15 @@ struct CommandScope {
 struct Sections {
   bool pushed = false;
   void Next(const char* label) {
-    if (pushed) Pop();
+    if (pushed) {
+      Pop();
+    }
     pushed = g_active && Push(label, kNamed);
   }
   ~Sections() {
-    if (pushed) Pop();
+    if (pushed) {
+      Pop();
+    }
   }
 };
 

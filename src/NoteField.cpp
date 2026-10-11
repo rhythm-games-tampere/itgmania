@@ -1,5 +1,4 @@
 #include "NoteField.h"
-#include "RenderProfiler.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -35,6 +34,7 @@
 #include "RageTimer.h"
 #include "RageTypes.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "ScreenDimensions.h"
 #include "Song.h"
 #include "Sprite.h"
