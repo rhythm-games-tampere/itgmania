@@ -1,10 +1,14 @@
 // Stands in for the fixed-function pipeline (RageDisplay_OGL.cpp,
-// UseDrawProgram). Inputs, matrices, light and material are still the GL
-// built-ins.
+// UseDrawProgram), and is the vertex stage of the effect mode shaders.
+// Inputs, matrices, light and material are still the GL built-ins.
 
 // [1].x, [1].y: sphere map texgen on texture units 1 and 2
 // [1].z: lighting (0 off, 1 on without lights, 2 on with light 0)
+// [1].w: per-vertex texture matrix scaling (compiled models)
 uniform ivec4 State[2];
+
+// How much of the texture matrix applies per vertex (RageModelVertex).
+attribute vec4 TextureMatrixScale;
 
 varying vec4 vColor;
 varying vec4 vTex0;
@@ -20,6 +24,19 @@ vec4 SphereMap(vec4 tex, vec3 eye, vec3 normal)
 
 void main(void)
 {
+	if (State[1].w != 0)
+	{
+		// What the old "Texture matrix scaling" shader did: no lighting
+		// (a known bug, kept so models look the same) and no sphere map.
+		gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+		vec4 scaled = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+		vTex0 = scaled * TextureMatrixScale +
+			gl_MultiTexCoord0 * (vec4(1.0) - TextureMatrixScale);
+		vTex1 = gl_TextureMatrix[1] * gl_MultiTexCoord1;
+		vColor = clamp(gl_Color, 0.0, 1.0);
+		return;
+	}
+
 	// ftransform matches fixed-function positions exactly.
 	gl_Position = ftransform();
 

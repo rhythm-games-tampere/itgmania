@@ -2,6 +2,10 @@ uniform sampler2D Texture1;
 uniform sampler2D Texture2;
 uniform int TextureWidth;
 
+// From Fixed function.vert.
+varying vec4 vColor;
+varying vec4 vTex0;
+
 /*
  * Convert from YUYV422 to RGB.
  *
@@ -12,7 +16,7 @@ uniform int TextureWidth;
  */
 void main(void)
 {
-	vec4 tex = gl_TexCoord[0];
+	vec4 tex = vTex0;
 
 	float fRealWidth = float(TextureWidth);
 	float fU = tex.x;

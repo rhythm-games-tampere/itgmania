@@ -319,7 +319,7 @@ def main():
     r.add_argument("--no-perf", action="store_true",
                    help="skip the full-song RenderProfiler run")
     r.add_argument("--pref", action="append", default=[], metavar="KEY=VALUE",
-                   help="extra [Options] preference, e.g. RenderWithShaders=0")
+                   help="extra [Options] preference, e.g. CelShadeModels=1")
     c = sub.add_parser("compare")
     c.add_argument("baseline")
     c.add_argument("new")

@@ -1,6 +1,10 @@
 uniform sampler2D Texture1;
 uniform sampler2D Texture2;
 
+// From Fixed function.vert.
+varying vec4 vColor;
+varying vec4 vTex0;
+
 vec4 ApplyScreen( vec4 over, vec4 under, float fill )
 {
 	vec3 NeutralColor = vec3(0.5,0.5,0.5);
@@ -19,17 +23,17 @@ vec4 ApplyScreen( vec4 over, vec4 under, float fill )
 void main(void)
 {
 	// creates two vec4s that represent the two textures.
-	vec4 under = texture2DProj( Texture1, gl_TexCoord[0] );
-	vec4 over = texture2DProj(  Texture2, gl_TexCoord[0] );
+	vec4 under = texture2DProj( Texture1, vTex0 );
+	vec4 over = texture2DProj(  Texture2, vTex0 );
 
 	// the return value is also a vec4.
-	vec4 ret = ApplyScreen( over, under, gl_Color.a );
+	vec4 ret = ApplyScreen( over, under, vColor.a );
 
 	// glenn does some math here that I haven't put the time in to understand yet.
 	ret.rgb += (1.0 - over.a) * under.rgb * under.a;
 	ret.a += (1.0 - over.a) * under.a;
 
-	over.a *= gl_Color.a;
+	over.a *= vColor.a;
 	ret.rgb += (1.0 - under.a) * over.rgb * over.a;
 	ret.a += (1.0 - under.a) * over.a;
 

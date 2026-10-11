@@ -72,9 +72,6 @@ static int g_iMaxTextureUnits = 0;
  * no GL_T2F_C4F_V3F. */
 static const GLenum RageSpriteVertexFormat = GL_T2F_C4F_N3F_V3F;
 
-/* If we support texture matrix scaling, a handle to the vertex program: */
-static GLuint g_bTextureMatrixShader = 0;
-
 static std::map<uintptr_t, RenderTarget*> g_mapRenderTargets;
 static RenderTarget* g_pCurrentRenderTarget = nullptr;
 
@@ -414,18 +411,6 @@ void CacheUseProgram(GLuint program) {
   g_cache.program = program;
 }
 
-// Texture matrix and texgen are per texture unit, and get changed behind the
-// cache's back by the compiled geometry texture-matrix hack.
-void ForgetTextureMatrix() {
-  if (g_cache.active_unit >= 0) {
-    g_cache.tex_mat_valid[g_cache.active_unit] = false;
-  } else {
-    for (bool& v : g_cache.tex_mat_valid) {
-      v = false;
-    }
-  }
-}
-
 // True if lighting or texgen is (or may be) on; avoids glGet when known.
 bool NeedsNormals() {
   if (g_cache.lighting == 1) {
@@ -587,7 +572,6 @@ RageDisplay_Legacy::RageDisplay_Legacy() {
   RageDisplay_Legacy_Helpers::Init();
 
   g_pWind = nullptr;
-  g_bTextureMatrixShader = 0;
   offscreenRenderTarget = nullptr;
 }
 
@@ -670,55 +654,38 @@ GLuint CompileShader(
   return hShader;
 }
 
-GLuint LoadShader(
-    GLenum ShaderType, std::string sFile, std::vector<std::string> asDefines) {
-  // XXX: dumb, but I don't feel like refactoring ragedisplay for this. -Colby
-  GLuint secondaryShader = 0;
-  if (sFile == "Data/Shaders/GLSL/Cel.vert") {
-    secondaryShader = CompileShader(
-        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Cel.frag", asDefines);
-  } else if (sFile == "Data/Shaders/GLSL/Shell.vert") {
-    secondaryShader = CompileShader(
-        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Shell.frag", asDefines);
-  } else if (sFile == "Data/Shaders/GLSL/Fixed function.vert") {
-    secondaryShader = CompileShader(
-        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Fixed function.frag", asDefines);
-  } else if (sFile == "Data/Shaders/GLSL/Distance field.vert") {
-    secondaryShader = CompileShader(
-        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Distance field.frag", asDefines);
+/* Vertex attribute for RageModelVertex::TextureMatrixScale. Bound before
+ * linking; 6 isn't aliased by NVIDIA's conventional attributes. */
+const GLuint kAttribTextureMatrixScale = 6;
+
+/* Links Data/Shaders/GLSL/<sVert> and <sFrag> into a program; 0 on failure. */
+GLuint LoadProgram(const std::string& sVert, const std::string& sFrag) {
+  const std::string sDir = "Data/Shaders/GLSL/";
+  GLuint hVert = CompileShader(GL_VERTEX_SHADER, sDir + sVert, {});
+  GLuint hFrag = CompileShader(GL_FRAGMENT_SHADER, sDir + sFrag, {});
+  GLuint hProgram = 0;
+  if (hVert && hFrag) {
+    hProgram = glCreateProgram();
+    glAttachShader(hProgram, hVert);
+    glAttachShader(hProgram, hFrag);
+    glBindAttribLocation(
+        hProgram, kAttribTextureMatrixScale, "TextureMatrixScale");
+    glLinkProgram(hProgram);
+    GLint bLinkStatus = GL_FALSE;
+    glGetProgramiv(hProgram, GL_LINK_STATUS, &bLinkStatus);
+    if (!bLinkStatus) {
+      LOG->Warn(
+          "Error linking shaders %s and %s: %s", sVert.c_str(), sFrag.c_str(),
+          GetInfoLog(hProgram, true).c_str());
+      glDeleteProgram(hProgram);
+      hProgram = 0;
+    }
   }
-
-  GLuint hShader = CompileShader(ShaderType, sFile, asDefines);
-  if (hShader == 0) {
-    return 0;
-  }
-
-  GLuint hProgram = glCreateProgram();
-  glAttachShader(hProgram, hShader);
-
   // Attached shaders are only flagged for deletion until the program goes.
-  if (secondaryShader) {
-    glAttachShader(hProgram, secondaryShader);
-    glDeleteShader(secondaryShader);
-  }
-  glDeleteShader(hShader);
-
-  // Link the program.
-  glLinkProgram(hProgram);
-  GLint bLinkStatus = GL_FALSE;
-  glGetProgramiv(hProgram, GL_LINK_STATUS, &bLinkStatus);
-
-  if (!bLinkStatus) {
-    LOG->Warn(
-        "Error linking shader %s: %s", sFile.c_str(),
-        GetInfoLog(hProgram, true).c_str());
-    glDeleteProgram(hProgram);
-    return 0;
-  }
+  glDeleteShader(hVert);
+  glDeleteShader(hFrag);
   return hProgram;
 }
-
-static int g_iAttribTextureMatrixScale;
 
 static GLuint g_bUnpremultiplyShader = 0;
 static GLuint g_bColorBurnShader = 0;
@@ -732,96 +699,64 @@ static GLuint g_gShellShader = 0;
 static GLuint g_gCelShader = 0;
 static GLuint g_gDistanceFieldShader = 0;
 
-/* "Fixed function" program and its State uniform. The last uploaded value is
- * global: program objects (and their uniforms) are shared between contexts,
- * and only one thread renders at a time. */
-static Preference<bool> g_bRenderWithShaders("RenderWithShaders", true);
+/* "Fixed function" draws everything no other program is asked for. */
 static GLuint g_hFixedFunctionShader = 0;
-static GLint g_iFixedFunctionState = -1;
-static int g_aiFixedFunctionState[8];
 
-void InitShaders() {
-  // xxx: replace this with a ShaderManager or something that reads in
-  // the shaders and determines shader type by file extension. -aj
-  // argh shaders in stepmania are painful -colby
-  std::vector<std::string> asDefines;
+/* Programs with a State uniform (those using Fixed function.vert), and the
+ * value last uploaded. Program objects and their uniforms are shared between
+ * contexts, and only one thread renders at a time, so this is global. */
+struct ProgramState {
+  GLint location;
+  int last[8];
+};
+static std::unordered_map<GLuint, ProgramState> g_ProgramStates;
 
-  // used for scrolling textures (I think)
-  g_bTextureMatrixShader = LoadShader(
-      GL_VERTEX_SHADER, "Data/Shaders/GLSL/Texture matrix scaling.vert",
-      asDefines);
+/* Loads a program and sets its samplers. Returns 0 on failure. */
+static GLuint InitProgram(const std::string& sVert, const std::string& sFrag) {
+  GLuint hProgram = LoadProgram(sVert, sFrag);
+  if (hProgram == 0) {
+    return 0;
+  }
+  CacheUseProgram(hProgram);
+  glUniform1i(glGetUniformLocation(hProgram, "Texture0"), 0);
+  glUniform1i(glGetUniformLocation(hProgram, "Texture1"), 0);
+  glUniform1i(glGetUniformLocation(hProgram, "Texture2"), 1);
+  GLint iState = glGetUniformLocation(hProgram, "State");
+  if (iState != -1) {
+    ProgramState& ps = g_ProgramStates[hProgram];
+    ps.location = iState;
+    std::fill(std::begin(ps.last), std::end(ps.last), -1);
+  }
+  CacheUseProgram(0);
+  return hProgram;
+}
 
-  // these two are for dancing characters and are both actually shader pairs
-  g_gShellShader =
-      LoadShader(GL_VERTEX_SHADER, "Data/Shaders/GLSL/Shell.vert", asDefines);
-  g_gCelShader =
-      LoadShader(GL_VERTEX_SHADER, "Data/Shaders/GLSL/Cel.vert", asDefines);
-  g_gDistanceFieldShader = LoadShader(
-      GL_VERTEX_SHADER, "Data/Shaders/GLSL/Distance field.vert", asDefines);
+/* Returns an error if the shader every draw depends on didn't load. */
+static std::string InitShaders() {
+  g_ProgramStates.clear();
+  const char* ff = "Fixed function.vert";
+  g_hFixedFunctionShader = InitProgram(ff, "Fixed function.frag");
+
+  // these two are for dancing characters
+  g_gShellShader = InitProgram("Shell.vert", "Shell.frag");
+  g_gCelShader = InitProgram("Cel.vert", "Cel.frag");
+  g_gDistanceFieldShader =
+      InitProgram("Distance field.vert", "Distance field.frag");
 
   // effects
-  g_bUnpremultiplyShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Unpremultiply.frag", asDefines);
-  g_bColorBurnShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Color burn.frag", asDefines);
-  g_bColorDodgeShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Color dodge.frag", asDefines);
-  g_bVividLightShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Vivid light.frag", asDefines);
-  g_hHardMixShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Hard mix.frag", asDefines);
-  g_hOverlayShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Overlay.frag", asDefines);
-  g_hScreenShader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Screen.frag", asDefines);
-  g_hYUYV422Shader = LoadShader(
-      GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/YUYV422.frag", asDefines);
+  g_bUnpremultiplyShader = InitProgram(ff, "Unpremultiply.frag");
+  g_bColorBurnShader = InitProgram(ff, "Color burn.frag");
+  g_bColorDodgeShader = InitProgram(ff, "Color dodge.frag");
+  g_bVividLightShader = InitProgram(ff, "Vivid light.frag");
+  g_hHardMixShader = InitProgram(ff, "Hard mix.frag");
+  g_hOverlayShader = InitProgram(ff, "Overlay.frag");
+  g_hScreenShader = InitProgram(ff, "Screen.frag");
+  g_hYUYV422Shader = InitProgram(ff, "YUYV422.frag");
 
-  g_hFixedFunctionShader = 0;
-  if (g_bRenderWithShaders) {
-    g_hFixedFunctionShader = LoadShader(
-        GL_VERTEX_SHADER, "Data/Shaders/GLSL/Fixed function.vert", asDefines);
+  if (g_hFixedFunctionShader == 0) {
+    return "The \"Fixed function\" shader failed to compile; see the log.";
   }
-  if (g_hFixedFunctionShader) {
-    CacheUseProgram(g_hFixedFunctionShader);
-    glUniform1i(glGetUniformLocation(g_hFixedFunctionShader, "Texture1"), 0);
-    glUniform1i(glGetUniformLocation(g_hFixedFunctionShader, "Texture2"), 1);
-    g_iFixedFunctionState =
-        glGetUniformLocation(g_hFixedFunctionShader, "State");
-    std::fill(
-        std::begin(g_aiFixedFunctionState), std::end(g_aiFixedFunctionState),
-        -1);
-    CacheUseProgram(0);
-  }
-
-  // Bind attributes.
-  if (g_bTextureMatrixShader) {
-    FlushGLErrors();
-    g_iAttribTextureMatrixScale =
-        glGetAttribLocation(g_bTextureMatrixShader, "TextureMatrixScale");
-    if (g_iAttribTextureMatrixScale == -1) {
-      LOG->Trace(
-          "Scaling shader link failed: couldn't bind attribute "
-          "\"TextureMatrixScale\"");
-      glDeleteProgram(g_bTextureMatrixShader);
-      g_bTextureMatrixShader = 0;
-    } else {
-      AssertNoGLError();
-
-      /* Older Catalyst drivers seem to throw GL_INVALID_OPERATION here. */
-      glVertexAttrib2f(g_iAttribTextureMatrixScale, 1, 1);
-      GLenum iError = glGetError();
-      if (iError == GL_INVALID_OPERATION) {
-        LOG->Trace(
-            "Scaling shader failed: glVertexAttrib2f returned "
-            "GL_INVALID_OPERATION");
-        glDeleteProgram(g_bTextureMatrixShader);
-        g_bTextureMatrixShader = 0;
-      } else {
-        ASSERT_M(iError == GL_NO_ERROR, GLToString(iError));
-      }
-    }
-  }
+  return std::string();
 }
 
 static LocalizedString OBTAIN_AN_UPDATED_VIDEO_DRIVER(
@@ -1057,7 +992,10 @@ std::string RageDisplay_Legacy::TryVideoMode(
     ++g_iContextGeneration;
     InvalidateObjects();
 
-    InitShaders();
+    std::string sError = InitShaders();
+    if (!sError.empty()) {
+      return sError;
+    }
   }
 
 // I'm not sure this is correct -Colby
@@ -1313,56 +1251,55 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
       base + offsetof(RageSpriteVertex, n), stride);
 }
 
-/* Binds the program for the next draw: the one asked for, or with none, the
- * "Fixed function" shader if it covers the state that is set. Otherwise GL's
- * fixed-function pipeline draws. */
-static void UseDrawProgram() {
+/* Binds the program for the next draw: the one asked for by SetEffectMode or
+ * SetCelShaded, or with none, "Fixed function". Meshes with per-vertex texture
+ * matrix scaling always use "Fixed function" (as the old scaling shader
+ * overrode any other). Sets State on programs that have it. */
+static void UseDrawProgram(bool bTextureMatrixScale = false) {
   FixedFunctionState& ff = FF();
   GLuint program = ff.program;
-  // State[0]: texture modes of units 1 and 2, alpha test. State[1]: sphere
-  // map on units 1 and 2, lighting (2 with light 0 on).
-  int state[8] = {0, 0, ff.alpha_test, 0, 0, 0, 0, 0};
-  // ponytail: light 0 is the only one anything turns on; others fall back.
-  if (program == 0 && g_hFixedFunctionShader != 0 && (ff.lights & ~1) == 0) {
+  if (program == 0 || bTextureMatrixScale) {
     program = g_hFixedFunctionShader;
-    if (ff.lighting) {
-      state[6] = ff.lights != 0 ? 2 : 1;
+  }
+  CacheUseProgram(program);
+
+  auto it = g_ProgramStates.find(program);
+  if (it == g_ProgramStates.end()) {
+    return;
+  }
+  // State[0]: texture modes of units 1 and 2, alpha test. State[1]: sphere
+  // map on units 1 and 2, lighting (2 with light 0 on), texture matrix scale.
+  // ponytail: two texture units and light 0, all anything uses. Units 3-4
+  // and lights 1-7 are ignored.
+  int state[8] = {0, 0, ff.alpha_test, 0, 0, 0, 0, bTextureMatrixScale};
+  if (ff.lighting) {
+    state[6] = (ff.lights & 1) != 0 ? 2 : 1;
+  }
+  for (int tu = 0; tu < 2; ++tu) {
+    if (!ff.tex_enabled[tu]) {
+      continue;
     }
-    for (int tu = 0; tu < NUM_TextureUnit; ++tu) {
-      if (!ff.tex_enabled[tu]) {
-        continue;
-      }
-      // ponytail: the shader has two texture units; more fall back.
-      if (tu >= 2) {
-        program = 0;
+    switch (ff.tex_mode[tu]) {
+      case TextureMode_Modulate:
+        state[tu] = 1;
         break;
-      }
-      switch (ff.tex_mode[tu]) {
-        case TextureMode_Modulate:
-          state[tu] = 1;
-          break;
-        case TextureMode_Add:
-          state[tu] = 2;
-          break;
-        case TextureMode_Glow:
-          state[tu] = 3;
-          break;
-        default:
-          break;
-      }
-      state[4 + tu] = ff.texgen[tu];
+      case TextureMode_Add:
+        state[tu] = 2;
+        break;
+      case TextureMode_Glow:
+        state[tu] = 3;
+        break;
+      default:
+        break;
     }
+    state[4 + tu] = ff.texgen[tu];
   }
 
-  CacheUseProgram(program);
-  if (program == g_hFixedFunctionShader && program != 0 &&
-      !std::equal(
-          std::begin(state), std::end(state),
-          std::begin(g_aiFixedFunctionState))) {
+  ProgramState& ps = it->second;
+  if (!std::equal(std::begin(state), std::end(state), std::begin(ps.last))) {
     CountGL(RenderProfiler::kGLOther);
-    glUniform4iv(g_iFixedFunctionState, 2, state);
-    std::copy(
-        std::begin(state), std::end(state), std::begin(g_aiFixedFunctionState));
+    glUniform4iv(ps.location, 2, state);
+    std::copy(std::begin(state), std::end(state), std::begin(ps.last));
   }
 }
 
@@ -1682,48 +1619,13 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
   }
 
   if (meshInfo.m_bNeedsTextureMatrixScale) {
-    if (g_bTextureMatrixShader != 0) {
-      /* If we're using texture matrix scales, set up that buffer, too, and
-       * enable the vertex shader.  This shader doesn't support all OpenGL
-       * state, so only enable it if we're using it. */
-      glEnableVertexAttribArray(g_iAttribTextureMatrixScale);
-      DebugAssertNoGLError();
-      CacheBindBuffer(
-          GL_ARRAY_BUFFER, g_cache.array_buffer, m_nTextureMatrixScale);
-      DebugAssertNoGLError();
-      glVertexAttribPointer(
-          g_iAttribTextureMatrixScale, 2, GL_FLOAT, false, 0, nullptr);
-      DebugAssertNoGLError();
-
-      CacheUseProgram(g_bTextureMatrixShader);
-      DebugAssertNoGLError();
-    } else {
-      // Kill the texture translation.
-      // XXX: Change me to scale the translation by the TextureTranslationScale
-      // of the first vertex.
-      RageMatrix mat;
-      RenderProfiler::CountGL(RenderProfiler::kGLGet);
-      glGetFloatv(GL_TEXTURE_MATRIX, (float*)mat);
-
-      /*
-      for( int i=0; i<4; i++ )
-      {
-              std::string s;
-              for( int j=0; j<4; j++ )
-                      s += ssprintf( "%f ", mat.m[i][j] );
-              LOG->Trace( s );
-      }
-      */
-
-      mat.m[3][0] = 0;
-      mat.m[3][1] = 0;
-      mat.m[3][2] = 0;
-
-      CacheMatrixMode(GL_TEXTURE);
-      glLoadMatrixf((const float*)mat);
-      ForgetTextureMatrix();
-      DebugAssertNoGLError();
-    }
+    glEnableVertexAttribArray(kAttribTextureMatrixScale);
+    CacheBindBuffer(
+        GL_ARRAY_BUFFER, g_cache.array_buffer, m_nTextureMatrixScale);
+    glVertexAttribPointer(
+        kAttribTextureMatrixScale, 2, GL_FLOAT, false, 0, nullptr);
+    UseDrawProgram(true);
+    DebugAssertNoGLError();
   }
 
   CacheBindBuffer(
@@ -1742,9 +1644,8 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
       BUFFER_OFFSET(meshInfo.iTriangleStart * sizeof(msTriangle)));
   DebugAssertNoGLError();
 
-  if (meshInfo.m_bNeedsTextureMatrixScale && g_bTextureMatrixShader != 0) {
-    glDisableVertexAttribArray(g_iAttribTextureMatrixScale);
-    CacheUseProgram(0);
+  if (meshInfo.m_bNeedsTextureMatrixScale) {
+    glDisableVertexAttribArray(kAttribTextureMatrixScale);
   }
 }
 
@@ -2082,25 +1983,18 @@ void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
       break;
   }
 
+  // Bound by the next draw. Samplers are set when the program is loaded.
   FF().program = hShader;
-  if (hShader == 0) {
-    return;  // the next draw picks its program
-  }
-  DebugFlushGLErrors();
-  CacheUseProgram(hShader);
-  GLint iTexture1 = glGetUniformLocation(hShader, "Texture1");
-  GLint iTexture2 = glGetUniformLocation(hShader, "Texture2");
-  glUniform1i(iTexture1, 0);
-  glUniform1i(iTexture2, 1);
 
-  if (effect == EffectMode_YUYV422) {
+  if (effect == EffectMode_YUYV422 && hShader != 0) {
+    DebugFlushGLErrors();
+    CacheUseProgram(hShader);
     GLint iTextureWidthUniform = glGetUniformLocation(hShader, "TextureWidth");
     GLint iWidth;
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth);
     glUniform1i(iTextureWidthUniform, iWidth);
+    DebugAssertNoGLError();
   }
-
-  DebugAssertNoGLError();
 }
 
 bool RageDisplay_Legacy::IsEffectModeSupported(EffectMode effect) {
@@ -2981,9 +2875,7 @@ bool RageDisplay_Legacy::SupportsTextureFormat(
   }
 }
 
-bool RageDisplay_Legacy::SupportsPerVertexMatrixScale() {
-  return g_bTextureMatrixShader != 0;
-}
+bool RageDisplay_Legacy::SupportsPerVertexMatrixScale() { return true; }
 
 void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
   if (!SetTextureUnit(tu)) {
