@@ -207,6 +207,7 @@ DancingCharacters::DancingCharacters()
     }
 
     m_pCharacter[p]->LoadMilkshapeAscii(pChar->GetModelPath());
+    m_bHasModel = true;
     m_pCharacter[p]->LoadMilkshapeAsciiBones(
         "rest", pChar->GetRestAnimationPath());
     m_pCharacter[p]->LoadMilkshapeAsciiBones(

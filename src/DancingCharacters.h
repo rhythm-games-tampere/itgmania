@@ -34,7 +34,10 @@ class DancingCharacters : public ActorFrame {
 
   virtual void Update(float fDelta);
   virtual void DrawPrimitives();
+  // Nothing to draw (but camera and lighting setup) without a 3D model.
+  virtual bool EarlyAbortDraw() const { return !m_bHasModel; }
   bool m_bDrawDangerLight;
+  bool m_bHasModel = false;
   void Change2DAnimState(PlayerNumber pn, int iState);
 
  protected:
