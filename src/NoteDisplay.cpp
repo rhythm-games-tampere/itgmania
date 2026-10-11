@@ -201,7 +201,21 @@ struct NoteResource {
       m_nsap;  // should be refcounted along with g_NoteResource[]
   int m_iRefCount;
   Actor* m_pActor;  // todo: AutoActor me? -aj
+  // Resources not drawn recently aren't updated every frame; their update
+  // time accumulates here and is applied when they're next fetched to draw.
+  uint64_t m_iLastUsedFrame = 0;
+  float m_fPendingDelta = 0;
 };
+
+// Brings a resource's actor up to date before it is drawn.
+static Actor* UseNoteResource(NoteResource* pRes) {
+  pRes->m_iLastUsedFrame = GameLoop::GetFrameNumber();
+  if (pRes->m_fPendingDelta > 0) {
+    pRes->m_pActor->Update(pRes->m_fPendingDelta);
+    pRes->m_fPendingDelta = 0;
+  }
+  return pRes->m_pActor;
+}
 
 static std::map<std::string, std::map<NoteSkinAndPath, NoteResource*>>
     g_NoteResource;
@@ -273,7 +287,7 @@ void NoteColorActor::Load(
 }
 
 Actor* NoteColorActor::Get(const std::string& sColor) {
-  return m_p[sColor]->m_pActor;
+  return UseNoteResource(m_p[sColor]);
 }
 
 /* NoteColorSprite */
@@ -298,7 +312,7 @@ void NoteColorSprite::Load(
 }
 
 Sprite* NoteColorSprite::Get(const std::string& sColor) {
-  return dynamic_cast<Sprite*>(m_p[sColor]->m_pActor);
+  return dynamic_cast<Sprite*>(UseNoteResource(m_p[sColor]));
 }
 
 static const char* HoldTypeNames[] = {
@@ -671,15 +685,26 @@ void NoteDisplay::Update(float fDeltaTime) {
    * this, so skip repeat calls within the same frame (this used to run 3x per
    * frame in 2P, 2x in 1P). */
   static uint64_t last_frame = UINT64_MAX;
-  if (GameLoop::GetFrameNumber() == last_frame) {
+  const uint64_t frame = GameLoop::GetFrameNumber();
+  if (frame == last_frame) {
     return;
   }
-  last_frame = GameLoop::GetFrameNumber();
-  std::map<NoteSkinAndPath, NoteResource*>::iterator it;
+  last_frame = frame;
+
+  /* Every note color, part, column and player has its own actor (thousands
+   * in 2P), but only the ones on screen matter. Update those drawn this or
+   * last frame; defer the rest until UseNoteResource fetches them, so their
+   * animation state still ends up as if updated every frame. Tap and hold
+   * parts get their animation frame from the beat at draw time anyway. */
   for (auto& color_map : g_NoteResource) {
-    for (it = color_map.second.begin(); it != color_map.second.end(); ++it) {
-      NoteResource* pRes = it->second;
-      pRes->m_pActor->Update(fDeltaTime);
+    for (auto& it : color_map.second) {
+      NoteResource* pRes = it.second;
+      if (pRes->m_iLastUsedFrame + 1 >= frame) {
+        pRes->m_pActor->Update(pRes->m_fPendingDelta + fDeltaTime);
+        pRes->m_fPendingDelta = 0;
+      } else {
+        pRes->m_fPendingDelta += fDeltaTime;
+      }
     }
   }
 }
