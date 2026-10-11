@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -244,10 +245,179 @@ static void FixLittleEndian() {
   }
 }
 
+/* Shadow copy of the GL state we set per draw, so redundant calls are skipped.
+ * Mesa revalidates state on the CPU after every state call, changed or not, and
+ * glGet* stalls mesa_glthread. -1 / false means unknown: the next set always
+ * reaches GL. thread_local because concurrent rendering draws from a second
+ * context on another thread. Invalidated on frame start, render target and
+ * resolution changes, and concurrent rendering hand-offs. */
+namespace {
+
+struct GLStateCache {
+  int active_unit;
+  int client_unit;
+  int tex_enabled[NUM_TextureUnit];
+  int64_t bound_tex[NUM_TextureUnit];  // -1 unknown
+  int tex_mode[NUM_TextureUnit];
+  int texgen[NUM_TextureUnit];
+  int blend, zwrite, ztest, cull, alpha_test, lighting;
+  float zbias;
+  bool zbias_valid;
+  int64_t program;  // -1 unknown
+  int matrix_mode;  // 0 unknown
+  bool proj_valid, mv_valid, tex_mat_valid[NUM_TextureUnit];
+  RageMatrix proj, mv, tex_mat[NUM_TextureUnit];
+  int arr_vertex, arr_color, arr_normal, arr_tex[NUM_TextureUnit];
+  int64_t array_buffer, element_buffer;  // -1 unknown
+
+  void Invalidate() {
+    active_unit = client_unit = -1;
+    for (int i = 0; i < NUM_TextureUnit; ++i) {
+      tex_enabled[i] = tex_mode[i] = texgen[i] = arr_tex[i] = -1;
+      bound_tex[i] = -1;
+      tex_mat_valid[i] = false;
+    }
+    blend = zwrite = ztest = cull = alpha_test = lighting = -1;
+    zbias_valid = false;
+    program = -1;
+    matrix_mode = 0;
+    proj_valid = mv_valid = false;
+    arr_vertex = arr_color = arr_normal = -1;
+    array_buffer = element_buffer = -1;
+  }
+};
+
+// Per texture object: filter/wrap last set, and whether it has mip levels.
+struct TexParams {
+  int filter = -1;
+  int wrap = -1;
+  int mipmapped = -1;
+};
+
+thread_local GLStateCache g_cache = [] {
+  GLStateCache c;
+  c.Invalidate();
+  return c;
+}();
+thread_local std::unordered_map<GLuint, TexParams> g_tex_params;
+
+void InvalidateGLStateCache() {
+  g_cache.Invalidate();
+  g_tex_params.clear();
+}
+
+void CacheActiveUnit(int unit) {
+  if (g_cache.active_unit == unit) return;
+  glActiveTextureARB(enum_add2(GL_TEXTURE0_ARB, unit));
+  g_cache.active_unit = unit;
+}
+
+void CacheClientUnit(int unit) {
+  if (g_cache.client_unit == unit) return;
+  if (!GLEW_ARB_multitexture) {
+    g_cache.client_unit = 0;  // only unit 0 exists
+    return;
+  }
+  glClientActiveTextureARB(enum_add2(GL_TEXTURE0_ARB, unit));
+  g_cache.client_unit = unit;
+}
+
+void CacheClientArray(GLenum array, int& cached, bool on) {
+  if (cached == static_cast<int>(on)) return;
+  if (on) {
+    glEnableClientState(array);
+  } else {
+    glDisableClientState(array);
+  }
+  cached = on;
+}
+
+void CacheTexCoordArray(int unit, bool on) {
+  if (g_cache.arr_tex[unit] == static_cast<int>(on)) return;
+  CacheClientUnit(unit);
+  CacheClientArray(GL_TEXTURE_COORD_ARRAY, g_cache.arr_tex[unit], on);
+}
+
+// Binds on the active unit, like glBindTexture.
+void CacheBindTexture(GLuint id) {
+  int unit = g_cache.active_unit;
+  if (unit >= 0 && g_cache.bound_tex[unit] == id) return;
+  glBindTexture(GL_TEXTURE_2D, id);
+  if (unit >= 0) {
+    g_cache.bound_tex[unit] = id;
+  } else {
+    for (int64_t& b : g_cache.bound_tex) b = -1;
+  }
+}
+
+void CacheEnable(GLenum cap, int& cached, bool on) {
+  if (cached == static_cast<int>(on)) return;
+  if (on) {
+    glEnable(cap);
+  } else {
+    glDisable(cap);
+  }
+  cached = on;
+}
+
+void CacheMatrixMode(GLenum mode) {
+  if (g_cache.matrix_mode == static_cast<int>(mode)) return;
+  glMatrixMode(mode);
+  g_cache.matrix_mode = mode;
+}
+
+void CacheLoadMatrix(GLenum mode, const RageMatrix& m, RageMatrix& cached,
+                     bool& valid) {
+  if (valid && memcmp(&m, &cached, sizeof(RageMatrix)) == 0) return;
+  CacheMatrixMode(mode);
+  glLoadMatrixf(reinterpret_cast<const float*>(&m));
+  cached = m;
+  valid = true;
+}
+
+void CacheBindBuffer(GLenum target, int64_t& cached, GLuint id) {
+  if (cached == id) return;
+  glBindBufferARB(target, id);
+  cached = id;
+}
+
+void CacheUseProgram(GLhandleARB program) {
+  // GLhandleARB is an integer on most platforms, a pointer on macOS.
+  int64_t p = static_cast<int64_t>((uintptr_t)program);
+  if (g_cache.program == p) return;
+  glUseProgramObjectARB(program);
+  g_cache.program = p;
+}
+
+// Texture matrix and texgen are per texture unit, and get changed behind the
+// cache's back by the compiled geometry texture-matrix hack.
+void ForgetTextureMatrix() {
+  if (g_cache.active_unit >= 0) {
+    g_cache.tex_mat_valid[g_cache.active_unit] = false;
+  } else {
+    for (bool& v : g_cache.tex_mat_valid) v = false;
+  }
+}
+
+// True if lighting or texgen is (or may be) on; avoids glGet when known.
+bool NeedsNormals() {
+  if (g_cache.lighting == 1) return true;
+  int unit = g_cache.active_unit;
+  if (g_cache.lighting == 0 && unit >= 0 && g_cache.texgen[unit] >= 0) {
+    return g_cache.texgen[unit] == 1;
+  }
+  GLboolean bLighting, bTextureGenS, bTextureGenT;
+  glGetBooleanv(GL_LIGHTING, &bLighting);
+  glGetBooleanv(GL_TEXTURE_GEN_S, &bTextureGenS);
+  glGetBooleanv(GL_TEXTURE_GEN_T, &bTextureGenT);
+  return bLighting || bTextureGenS || bTextureGenT;
+}
+}  // namespace
+
 static void TurnOffHardwareVBO() {
   if (GLEW_ARB_vertex_buffer_object) {
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
-    glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB, 0);
+    CacheBindBuffer(GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, 0);
+    CacheBindBuffer(GL_ELEMENT_ARRAY_BUFFER_ARB, g_cache.element_buffer, 0);
   }
 }
 
@@ -776,6 +946,7 @@ bool RageDisplay_Legacy::UseOffscreenRenderTarget() {
 }
 
 void RageDisplay_Legacy::ResolutionChanged() {
+  InvalidateGLStateCache();
   // LOG->Warn( "RageDisplay_Legacy::ResolutionChanged" );
 
   /* Clear any junk that's in the framebuffer. */
@@ -867,6 +1038,10 @@ int RageDisplay_Legacy::GetMaxTextureSize() const {
 }
 
 bool RageDisplay_Legacy::BeginFrame() {
+  // Anything outside RageDisplay may have touched GL. Texture params live on
+  // the texture objects and are only changed through this file, so they are
+  // kept (create/delete and context hand-offs reset them).
+  g_cache.Invalidate();
   /* We do this in here, rather than ResolutionChanged, or we won't update the
    * viewport for the concurrent rendering context. */
   int fWidth = g_pWind->GetActualVideoModeParams().windowWidth;
@@ -970,7 +1145,7 @@ RageSurface* RageDisplay_Legacy::GetTexture(uintptr_t iTexture) {
 
   FlushGLErrors();
 
-  glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(iTexture));
+  CacheBindTexture(static_cast<GLuint>(iTexture));
   GLint iHeight, iWidth, iAlphaBits;
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &iHeight);
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth);
@@ -995,30 +1170,46 @@ ActualVideoModeParams RageDisplay_Legacy::GetActualVideoModeParams() const {
   return g_pWind->GetActualVideoModeParams();
 }
 
+// Points the client arrays at v. Arrays are only enabled/disabled on change.
+static void SetVertexArrays(const void* pos, GLsizei pos_stride,
+                            const void* color, GLenum color_type,
+                            GLsizei color_stride, const void* tex,
+                            GLsizei tex_stride, const void* normal,
+                            GLsizei normal_stride) {
+  CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
+  glVertexPointer(3, GL_FLOAT, pos_stride, pos);
+
+  CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, true);
+  glColorPointer(color_type == GL_BGRA ? GL_BGRA : 4, GL_UNSIGNED_BYTE,
+                 color_stride, color);
+
+  CacheTexCoordArray(0, true);
+  CacheClientUnit(0);
+  glTexCoordPointer(2, GL_FLOAT, tex_stride, tex);
+
+  if (GLEW_ARB_multitexture) {
+    // Unit 2's coordinates only matter if it can sample; a disabled array
+    // must not keep pointing at a previous draw's (freed) vertices.
+    if (g_cache.tex_enabled[TextureUnit_2] != 0) {
+      CacheTexCoordArray(TextureUnit_2, true);
+      CacheClientUnit(TextureUnit_2);
+      glTexCoordPointer(2, GL_FLOAT, tex_stride, tex);
+    } else {
+      CacheTexCoordArray(TextureUnit_2, false);
+    }
+  }
+
+  CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, true);
+  glNormalPointer(GL_FLOAT, normal_stride, normal);
+}
+
 static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   static const bool bInterleaveColor =
       !!GLEW_ARB_vertex_array_bgra || !!GLEW_EXT_vertex_array_bgra;
   if (bInterleaveColor) {
     const GLsizei stride = sizeof(RageSpriteVertex);
-
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glVertexPointer(3, GL_FLOAT, stride, &v[0].p);
-
-    glEnableClientState(GL_COLOR_ARRAY);
-    glColorPointer(GL_BGRA, GL_UNSIGNED_BYTE, stride, &v[0].c);
-
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glTexCoordPointer(2, GL_FLOAT, stride, &v[0].t);
-
-    if (GLEW_ARB_multitexture) {
-      glClientActiveTextureARB(GL_TEXTURE1_ARB);
-      glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-      glTexCoordPointer(2, GL_FLOAT, stride, &v[0].t);
-      glClientActiveTextureARB(GL_TEXTURE0_ARB);
-    }
-
-    glEnableClientState(GL_NORMAL_ARRAY);
-    glNormalPointer(GL_FLOAT, stride, &v[0].n);
+    SetVertexArrays(&v[0].p, stride, &v[0].c, GL_BGRA, stride, &v[0].t, stride,
+                    &v[0].n, stride);
     return;
   }
 
@@ -1052,24 +1243,7 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
     Normal[i * 3 + 1] = v[i].n[1];
     Normal[i * 3 + 2] = v[i].n[2];
   }
-  glEnableClientState(GL_VERTEX_ARRAY);
-  glVertexPointer(3, GL_FLOAT, 0, Vertex);
-
-  glEnableClientState(GL_COLOR_ARRAY);
-  glColorPointer(4, GL_UNSIGNED_BYTE, 0, Color);
-
-  glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-  glTexCoordPointer(2, GL_FLOAT, 0, Texture);
-
-  if (GLEW_ARB_multitexture) {
-    glClientActiveTextureARB(GL_TEXTURE1_ARB);
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glTexCoordPointer(2, GL_FLOAT, 0, Texture);
-    glClientActiveTextureARB(GL_TEXTURE0_ARB);
-  }
-
-  glEnableClientState(GL_NORMAL_ARRAY);
-  glNormalPointer(GL_FLOAT, 0, Normal);
+  SetVertexArrays(Vertex, 0, Color, GL_RGBA, 0, Texture, 0, Normal, 0);
 }
 
 void RageDisplay_Legacy::SendCurrentMatrices() {
@@ -1081,17 +1255,22 @@ void RageDisplay_Legacy::SendCurrentMatrices() {
     RageMatrixScale(&flip, +1, -1, +1);
     RageMatrixMultiply(&projection, &flip, &projection);
   }
-  glMatrixMode(GL_PROJECTION);
-  glLoadMatrixf((const float*)&projection);
+  CacheLoadMatrix(GL_PROJECTION, projection, g_cache.proj, g_cache.proj_valid);
 
   // OpenGL has just "modelView", whereas D3D has "world" and "view"
   RageMatrix modelView;
   RageMatrixMultiply(&modelView, GetViewTop(), GetWorldTop());
-  glMatrixMode(GL_MODELVIEW);
-  glLoadMatrixf((const float*)&modelView);
+  CacheLoadMatrix(GL_MODELVIEW, modelView, g_cache.mv, g_cache.mv_valid);
 
-  glMatrixMode(GL_TEXTURE);
-  glLoadMatrixf((const float*)GetTextureTop());
+  // The texture matrix belongs to the active texture unit.
+  const int unit = g_cache.active_unit;
+  if (unit >= 0) {
+    CacheLoadMatrix(GL_TEXTURE, *GetTextureTop(), g_cache.tex_mat[unit],
+                    g_cache.tex_mat_valid[unit]);
+  } else {
+    CacheMatrixMode(GL_TEXTURE);
+    glLoadMatrixf((const float*)GetTextureTop());
+  }
 }
 
 class RageCompiledGeometrySWOGL : public RageCompiledGeometry {
@@ -1139,15 +1318,16 @@ class RageCompiledGeometrySWOGL : public RageCompiledGeometry {
 
     const MeshInfo& meshInfo = m_vMeshInfo[iMeshIndex];
 
-    glEnableClientState(GL_VERTEX_ARRAY);
+    CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
     glVertexPointer(3, GL_FLOAT, 0, &m_vPosition[0]);
 
-    glDisableClientState(GL_COLOR_ARRAY);
+    CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, false);
 
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    CacheTexCoordArray(0, true);
+    CacheClientUnit(0);
     glTexCoordPointer(2, GL_FLOAT, 0, &m_vTexture[0]);
 
-    glEnableClientState(GL_NORMAL_ARRAY);
+    CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, true);
     glNormalPointer(GL_FLOAT, 0, &m_vNormal[0]);
 
     if (meshInfo.m_bNeedsTextureMatrixScale) {
@@ -1171,8 +1351,9 @@ class RageCompiledGeometrySWOGL : public RageCompiledGeometry {
       mat.m[3][1] = 0;
       mat.m[3][2] = 0;
 
-      glMatrixMode(GL_TEXTURE);
+      CacheMatrixMode(GL_TEXTURE);
       glLoadMatrixf((const float*)mat);
+      ForgetTextureMatrix();
     }
 
     glDrawElements(
@@ -1241,6 +1422,8 @@ RageCompiledGeometryHWOGL::RageCompiledGeometryHWOGL() {
 RageCompiledGeometryHWOGL::~RageCompiledGeometryHWOGL() {
   DebugFlushGLErrors();
 
+  // Deleting a bound buffer unbinds it; buffer ids get reused.
+  g_cache.array_buffer = g_cache.element_buffer = -1;
   glDeleteBuffersARB(1, &m_nPositions);
   DebugAssertNoGLError();
   glDeleteBuffersARB(1, &m_nTextureCoords);
@@ -1284,6 +1467,8 @@ void RageCompiledGeometryHWOGL::AllocateBuffers() {
 
 void RageCompiledGeometryHWOGL::UploadData() {
   DebugFlushGLErrors();
+  // Binds buffers below without the cache.
+  g_cache.array_buffer = g_cache.element_buffer = -1;
 
   glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_nPositions);
   DebugAssertNoGLError();
@@ -1336,6 +1521,8 @@ void RageCompiledGeometryHWOGL::Invalidate() {
 
 void RageCompiledGeometryHWOGL::Allocate(const std::vector<msMesh>& vMeshes) {
   DebugFlushGLErrors();
+  // Binds buffers below without the cache.
+  g_cache.array_buffer = g_cache.element_buffer = -1;
 
   RageCompiledGeometrySWOGL::Allocate(vMeshes);
   glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_nPositions);
@@ -1387,43 +1574,28 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
     return;
   }
 
-  glEnableClientState(GL_VERTEX_ARRAY);
-  DebugAssertNoGLError();
-  glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_nPositions);
-  DebugAssertNoGLError();
+  CacheClientArray(GL_VERTEX_ARRAY, g_cache.arr_vertex, true);
+  CacheBindBuffer(GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, m_nPositions);
   glVertexPointer(3, GL_FLOAT, 0, nullptr);
   DebugAssertNoGLError();
 
-  glDisableClientState(GL_COLOR_ARRAY);
-  DebugAssertNoGLError();
+  CacheClientArray(GL_COLOR_ARRAY, g_cache.arr_color, false);
 
-  glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-  DebugAssertNoGLError();
-  glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_nTextureCoords);
-  DebugAssertNoGLError();
+  CacheTexCoordArray(0, true);
+  CacheClientUnit(0);
+  CacheBindBuffer(GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, m_nTextureCoords);
   glTexCoordPointer(2, GL_FLOAT, 0, nullptr);
   DebugAssertNoGLError();
 
   // TRICKY:  Don't bind and send normals if lighting is disabled.  This
   // will save some effort transforming these values.
-  // XXX: We should keep track of these ourself and avoid glGet*()
-  GLboolean bLighting;
-  glGetBooleanv(GL_LIGHTING, &bLighting);
-  GLboolean bTextureGenS;
-  glGetBooleanv(GL_TEXTURE_GEN_S, &bTextureGenS);
-  GLboolean bTextureGenT;
-  glGetBooleanv(GL_TEXTURE_GEN_T, &bTextureGenT);
-
-  if (bLighting || bTextureGenS || bTextureGenT) {
-    glEnableClientState(GL_NORMAL_ARRAY);
-    DebugAssertNoGLError();
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_nNormals);
-    DebugAssertNoGLError();
+  if (NeedsNormals()) {
+    CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, true);
+    CacheBindBuffer(GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, m_nNormals);
     glNormalPointer(GL_FLOAT, 0, nullptr);
     DebugAssertNoGLError();
   } else {
-    glDisableClientState(GL_NORMAL_ARRAY);
-    DebugAssertNoGLError();
+    CacheClientArray(GL_NORMAL_ARRAY, g_cache.arr_normal, false);
   }
 
   if (meshInfo.m_bNeedsTextureMatrixScale) {
@@ -1433,13 +1605,14 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
        * state, so only enable it if we're using it. */
       glEnableVertexAttribArrayARB(g_iAttribTextureMatrixScale);
       DebugAssertNoGLError();
-      glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_nTextureMatrixScale);
+      CacheBindBuffer(
+          GL_ARRAY_BUFFER_ARB, g_cache.array_buffer, m_nTextureMatrixScale);
       DebugAssertNoGLError();
       glVertexAttribPointerARB(
           g_iAttribTextureMatrixScale, 2, GL_FLOAT, false, 0, nullptr);
       DebugAssertNoGLError();
 
-      glUseProgramObjectARB(g_bTextureMatrixShader);
+      CacheUseProgram(g_bTextureMatrixShader);
       DebugAssertNoGLError();
     } else {
       // Kill the texture translation.
@@ -1462,13 +1635,15 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
       mat.m[3][1] = 0;
       mat.m[3][2] = 0;
 
-      glMatrixMode(GL_TEXTURE);
+      CacheMatrixMode(GL_TEXTURE);
       glLoadMatrixf((const float*)mat);
+      ForgetTextureMatrix();
       DebugAssertNoGLError();
     }
   }
 
-  glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB, m_nTriangles);
+  CacheBindBuffer(
+      GL_ELEMENT_ARRAY_BUFFER_ARB, g_cache.element_buffer, m_nTriangles);
   DebugAssertNoGLError();
 
 #define BUFFER_OFFSET(o) ((char*)(o))
@@ -1486,7 +1661,7 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
 
   if (meshInfo.m_bNeedsTextureMatrixScale && g_bTextureMatrixShader != 0) {
     glDisableVertexAttribArrayARB(g_iAttribTextureMatrixScale);
-    glUseProgramObjectARB(0);
+    CacheUseProgram(0);
   }
 }
 
@@ -1674,7 +1849,7 @@ static bool SetTextureUnit(TextureUnit tu) {
   if ((int)tu > g_iMaxTextureUnits) {
     return false;
   }
-  glActiveTextureARB(enum_add2(GL_TEXTURE0_ARB, tu));
+  CacheActiveUnit(tu);
   return true;
 }
 
@@ -1685,7 +1860,7 @@ void RageDisplay_Legacy::ClearAllTextures() {
   // HACK:  Reset the active texture to 0.
   // TODO:  Change all texture functions to take a stage number.
   if (GLEW_ARB_multitexture) {
-    glActiveTextureARB(GL_TEXTURE0_ARB);
+    CacheActiveUnit(0);
   }
 }
 
@@ -1702,11 +1877,9 @@ void RageDisplay_Legacy::SetTexture(TextureUnit tu, uintptr_t iTexture) {
     return;
   }
 
+  CacheEnable(GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0);
   if (iTexture) {
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(iTexture));
-  } else {
-    glDisable(GL_TEXTURE_2D);
+    CacheBindTexture(static_cast<GLuint>(iTexture));
   }
 }
 
@@ -1715,6 +1888,10 @@ void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
     return;
   }
 
+  if (g_cache.tex_mode[tu] == tm) {
+    return;
+  }
+  g_cache.tex_mode[tu] = tm;
   switch (tm) {
     case TextureMode_Modulate:
       glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -1728,6 +1905,8 @@ void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
         /* This is changing blend state, instead of texture state, which
          * isn't great, but it's better than doing nothing. */
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        g_cache.blend = -1;
+        g_cache.tex_mode[tu] = -1;
         return;
       }
 
@@ -1752,16 +1931,35 @@ void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
 }
 
 void RageDisplay_Legacy::SetTextureFiltering(TextureUnit tu, bool b) {
+  // Applies to the texture bound on the active unit (not necessarily tu).
+  TexParams* params = nullptr;
+  const int unit = g_cache.active_unit;
+  if (unit >= 0 && g_cache.bound_tex[unit] >= 0) {
+    params = &g_tex_params[static_cast<GLuint>(g_cache.bound_tex[unit])];
+    if (params->filter == static_cast<int>(b)) {
+      return;
+    }
+  }
+
   glTexParameteri(
       GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, b ? GL_LINEAR : GL_NEAREST);
 
   GLint iMinFilter;
   if (b) {
-    GLint iWidth1 = -1;
-    GLint iWidth2 = -1;
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth1);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 1, GL_TEXTURE_WIDTH, &iWidth2);
-    if (iWidth1 > 1 && iWidth2 != 0) {
+    bool mipmapped;
+    if (params != nullptr && params->mipmapped >= 0) {
+      mipmapped = params->mipmapped == 1;
+    } else {
+      GLint iWidth1 = -1;
+      GLint iWidth2 = -1;
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth1);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 1, GL_TEXTURE_WIDTH, &iWidth2);
+      mipmapped = iWidth1 > 1 && iWidth2 != 0;
+      if (params != nullptr) {
+        params->mipmapped = mipmapped;
+      }
+    }
+    if (mipmapped) {
       /* Mipmaps are enabled. */
       if (g_pWind->GetActualVideoModeParams().bTrilinearFiltering) {
         iMinFilter = GL_LINEAR_MIPMAP_LINEAR;
@@ -1776,6 +1974,9 @@ void RageDisplay_Legacy::SetTextureFiltering(TextureUnit tu, bool b) {
   }
 
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, iMinFilter);
+  if (params != nullptr) {
+    params->filter = b;
+  }
 }
 
 void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
@@ -1820,7 +2021,7 @@ void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
   }
 
   DebugFlushGLErrors();
-  glUseProgramObjectARB(hShader);
+  CacheUseProgram(hShader);
   if (hShader == 0) {
     return;
   }
@@ -1868,6 +2069,10 @@ bool RageDisplay_Legacy::IsEffectModeSupported(EffectMode effect) {
 }
 
 void RageDisplay_Legacy::SetBlendMode(BlendMode mode) {
+  if (g_cache.blend == mode) {
+    return;
+  }
+  g_cache.blend = mode;
   glEnable(GL_BLEND);
 
   if (glBlendEquation != nullptr) {
@@ -1950,12 +2155,18 @@ void RageDisplay_Legacy::SetBlendMode(BlendMode mode) {
 }
 
 bool RageDisplay_Legacy::IsZWriteEnabled() const {
+  if (g_cache.zwrite >= 0) {
+    return g_cache.zwrite == 1;
+  }
   bool a;
   glGetBooleanv(GL_DEPTH_WRITEMASK, (unsigned char*)&a);
   return a;
 }
 
 bool RageDisplay_Legacy::IsZTestEnabled() const {
+  if (g_cache.ztest >= 0) {
+    return g_cache.ztest != ZTEST_OFF;
+  }
   GLenum a;
   glGetIntegerv(GL_DEPTH_FUNC, (GLint*)&a);
   return a != GL_ALWAYS;
@@ -1968,16 +2179,31 @@ void RageDisplay_Legacy::ClearZBuffer() {
   SetZWrite(write);
 }
 
-void RageDisplay_Legacy::SetZWrite(bool b) { glDepthMask(b); }
+void RageDisplay_Legacy::SetZWrite(bool b) {
+  if (g_cache.zwrite == static_cast<int>(b)) {
+    return;
+  }
+  g_cache.zwrite = b;
+  glDepthMask(b);
+}
 
 void RageDisplay_Legacy::SetZBias(float f) {
   float fNear = SCALE(f, 0.0f, 1.0f, 0.05f, 0.0f);
   float fFar = SCALE(f, 0.0f, 1.0f, 1.0f, 0.95f);
+  if (g_cache.zbias_valid && g_cache.zbias == f) {
+    return;
+  }
+  g_cache.zbias = f;
+  g_cache.zbias_valid = true;
 
   glDepthRange(fNear, fFar);
 }
 
 void RageDisplay_Legacy::SetZTestMode(ZTestMode mode) {
+  if (g_cache.ztest == mode) {
+    return;
+  }
+  g_cache.ztest = mode;
   glEnable(GL_DEPTH_TEST);
   switch (mode) {
     case ZTEST_OFF:
@@ -1999,6 +2225,15 @@ void RageDisplay_Legacy::SetTextureWrapping(TextureUnit tu, bool b) {
    * OpenGl, so we'll behave incorrectly if the same texture is used in more
    * than one texture unit simultaneously with different wrapping. */
   SetTextureUnit(tu);
+  TexParams* params = nullptr;
+  const int unit = g_cache.active_unit;
+  if (unit >= 0 && g_cache.bound_tex[unit] >= 0) {
+    params = &g_tex_params[static_cast<GLuint>(g_cache.bound_tex[unit])];
+    if (params->wrap == static_cast<int>(b)) {
+      return;
+    }
+    params->wrap = b;
+  }
 
   GLenum mode = b ? GL_REPEAT : GL_CLAMP_TO_EDGE;
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mode);
@@ -2014,7 +2249,11 @@ void RageDisplay_Legacy::SetMaterial(
   // We can do this fake lighting by setting the vertex color.
   // XXX: unintended: SetLighting must be called before SetMaterial
   GLboolean bLighting;
-  glGetBooleanv(GL_LIGHTING, &bLighting);
+  if (g_cache.lighting >= 0) {
+    bLighting = g_cache.lighting == 1;
+  } else {
+    glGetBooleanv(GL_LIGHTING, &bLighting);
+  }
 
   if (bLighting) {
     glMaterialfv(GL_FRONT, GL_EMISSION, emissive);
@@ -2032,11 +2271,7 @@ void RageDisplay_Legacy::SetMaterial(
 }
 
 void RageDisplay_Legacy::SetLighting(bool b) {
-  if (b) {
-    glEnable(GL_LIGHTING);
-  } else {
-    glDisable(GL_LIGHTING);
-  }
+  CacheEnable(GL_LIGHTING, g_cache.lighting, b);
 }
 
 void RageDisplay_Legacy::SetLightOff(int index) {
@@ -2048,6 +2283,9 @@ void RageDisplay_Legacy::SetLightDirectional(
     const RageColor& specular, const RageVector3& dir) {
   // Light coordinates are transformed by the modelview matrix, but
   // we are being passed in world-space coords.
+  // SendCurrentMatrices used to always leave GL_TEXTURE current; keep the
+  // push/identity/pop on that matrix so lighting behaves as before.
+  CacheMatrixMode(GL_TEXTURE);
   glPushMatrix();
   glLoadIdentity();
 
@@ -2062,6 +2300,10 @@ void RageDisplay_Legacy::SetLightDirectional(
 }
 
 void RageDisplay_Legacy::SetCullMode(CullMode mode) {
+  if (g_cache.cull == mode) {
+    return;
+  }
+  g_cache.cull = mode;
   if (mode != CULL_NONE) {
     glEnable(GL_CULL_FACE);
   }
@@ -2092,14 +2334,17 @@ bool RageDisplay_Legacy::SupportsThreadedRendering() {
 
 void RageDisplay_Legacy::BeginConcurrentRenderingMainThread() {
   g_pWind->BeginConcurrentRenderingMainThread();
+  InvalidateGLStateCache();
 }
 
 void RageDisplay_Legacy::EndConcurrentRenderingMainThread() {
   g_pWind->EndConcurrentRenderingMainThread();
+  InvalidateGLStateCache();
 }
 
 void RageDisplay_Legacy::BeginConcurrentRendering() {
   g_pWind->BeginConcurrentRendering();
+  InvalidateGLStateCache();
   RageDisplay::BeginConcurrentRendering();
 }
 
@@ -2119,6 +2364,11 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
   }
 
   DebugFlushGLErrors();
+  // Deleting a bound texture binds 0 in its place; ids get reused.
+  for (int64_t& b : g_cache.bound_tex) {
+    if (b == static_cast<int64_t>(iTexture)) b = 0;
+  }
+  g_tex_params.erase(static_cast<GLuint>(iTexture));
   glDeleteTextures(1, reinterpret_cast<GLuint*>(&iTexture));
   DebugAssertNoGLError();
 }
@@ -2239,9 +2489,10 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   // allocate OpenGL texture resource
   uintptr_t iTexHandle;
   glGenTextures(1, reinterpret_cast<GLuint*>(&iTexHandle));
+  g_tex_params.erase(static_cast<GLuint>(iTexHandle));  // ids get reused
   ASSERT(iTexHandle != 0);
 
-  glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(iTexHandle));
+  CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
   if (g_pWind->GetActualVideoModeParams().bAnisotropicFiltering &&
       GLEW_EXT_texture_filter_anisotropic) {
@@ -2321,6 +2572,8 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   if (bFreeImg) {
     delete pImg;
   }
+  // Filtering was set before the mip levels were uploaded; re-learn it.
+  g_tex_params.erase(static_cast<GLuint>(iTexHandle));
   return iTexHandle;
 }
 
@@ -2402,7 +2655,7 @@ RageTextureLock* RageDisplay_Legacy::CreateTextureLock() {
 void RageDisplay_Legacy::UpdateTexture(
     uintptr_t iTexHandle, RageSurface* pImg, int iXOffset, int iYOffset,
     int iWidth, int iHeight) {
-  glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(iTexHandle));
+  CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
   bool bFreeImg;
   RagePixelFormat SurfacePixFmt =
@@ -2494,7 +2747,7 @@ void RenderTarget_FramebufferObject::Create(
   iTextureWidthOut = iTextureWidth;
   iTextureHeightOut = iTextureHeight;
 
-  glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(m_iTexHandle));
+  CacheBindTexture(static_cast<GLuint>(m_iTexHandle));
   GLenum internalformat;
   GLenum type = param.bWithAlpha ? GL_RGBA : GL_RGB;
   if (param.bFloat && GLEW_ARB_texture_float) {
@@ -2512,6 +2765,7 @@ void RenderTarget_FramebufferObject::Create(
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  g_tex_params.erase(static_cast<GLuint>(m_iTexHandle));  // set raw above
 
   /* Create the framebuffer object. */
   glGenFramebuffersEXT(1, reinterpret_cast<GLuint*>(&m_iFrameBufferHandle));
@@ -2633,6 +2887,7 @@ uintptr_t RageDisplay_Legacy::GetRenderTarget() {
 
 void RageDisplay_Legacy::SetRenderTarget(
     uintptr_t iTexture, bool bPreserveTexture) {
+  InvalidateGLStateCache();
   if (iTexture == 0) {
     g_bInvertY = false;
     glFrontFace(GL_CCW);
@@ -2750,6 +3005,10 @@ std::string RageDisplay_Legacy::GetTextureDiagnostics(
  * SetDefault call These kinds of functions is wasteful. -Colby
  */
 void RageDisplay_Legacy::SetAlphaTest(bool b) {
+  if (g_cache.alpha_test == static_cast<int>(b)) {
+    return;
+  }
+  g_cache.alpha_test = b;
   // Previously this was 0.01, rather than 0x01.
   glAlphaFunc(GL_GREATER, 0.00390625 /* 1/256 */);
   if (b) {
@@ -2813,6 +3072,10 @@ void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
     return;
   }
 
+  if (g_cache.texgen[tu] == static_cast<int>(b)) {
+    return;
+  }
+  g_cache.texgen[tu] = b;
   if (b) {
     glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
     glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
@@ -2833,13 +3096,13 @@ void RageDisplay_Legacy::SetCelShaded(int stage) {
 
   switch (stage) {
     case 1:
-      glUseProgramObjectARB(g_gShellShader);
+      CacheUseProgram(g_gShellShader);
       break;
     case 2:
-      glUseProgramObjectARB(g_gCelShader);
+      CacheUseProgram(g_gCelShader);
       break;
     default:
-      glUseProgramObjectARB(0);
+      CacheUseProgram(0);
       break;
   }
 }
