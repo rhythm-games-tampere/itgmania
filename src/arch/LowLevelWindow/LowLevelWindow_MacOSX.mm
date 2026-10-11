@@ -1,5 +1,6 @@
 #import "LowLevelWindow_MacOSX.h"
 #import "DisplaySpec.h"
+#import "PrefsManager.h"
 #import "RageDisplay_OGL_Helpers.h"
 #import "RageThreads.h"
 #import "RageUtil.h"
@@ -152,6 +153,11 @@ static NSOpenGLContext* CreateOGLContext(
   }
 
   NSOpenGLPixelFormat* pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
+  if (!pixelFormat && PREFSMAN->m_bAllowUnacceleratedRenderer) {
+    // No hardware renderer (e.g. a CI VM): allow Apple's software renderer.
+    attrs[0] = attrs[1] = NSOpenGLPFAMinimumPolicy;
+    pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
+  }
 
   if (!pixelFormat) {
     return nil;
