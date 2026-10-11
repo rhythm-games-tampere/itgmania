@@ -3,6 +3,7 @@
 (Docs/Devdocs/RenderingModernizationPlan.md, Phase 0).
 
   rendertest.py run [--out DIR] [--renderer opengl|d3d] [--size WxH] [--no-perf]
+                    [--pref KEY=VALUE ...]
   rendertest.py compare BASELINE_DIR NEW_DIR
 
 `run` builds an isolated portable install under Build/RenderTest/root
@@ -132,7 +133,7 @@ def primary_video_driver_name():
         i += 1
 
 
-def setup_root(renderer, size, skip_perf):
+def setup_root(renderer, size, skip_perf, extra_prefs=()):
     root = WORK / "root"
     for d in ("Themes", "Characters", "Save"):
         (root / d).mkdir(parents=True, exist_ok=True)
@@ -166,8 +167,12 @@ def setup_root(renderer, size, skip_perf):
     prefs = root / "Save" / "Preferences.ini"
     driver = primary_video_driver_name() if os.name == "nt" else "OpenGL"
     width, height = size.split("x")
-    prefs.write_text(PREFS.format(renderer=renderer, driver=driver,
-                                  width=width, height=height))
+    text = PREFS.format(renderer=renderer, driver=driver,
+                        width=width, height=height)
+    # Extra [Options] lines from --pref go right after the section header.
+    extra = "".join(p + "\n" for p in extra_prefs)
+    text = text.replace("[Options]\n", "[Options]\n" + extra, 1)
+    prefs.write_text(text)
     (root / "Save" / "RenderTest.ini").write_text(
         f"[RenderTest]\nSkipPerf={int(skip_perf)}\n")
     return root, exe
@@ -175,7 +180,7 @@ def setup_root(renderer, size, skip_perf):
 
 def run(args):
     out = Path(args.out) if args.out else WORK / "runs" / time.strftime("%Y%m%d-%H%M%S")
-    root, exe = setup_root(args.renderer, args.size, args.no_perf)
+    root, exe = setup_root(args.renderer, args.size, args.no_perf, args.pref)
     print(f"Running {exe} ...")
     log = root / "Logs" / "log.txt"
     t = time.time()
@@ -313,6 +318,8 @@ def main():
                    help="window size; must fit the desktop (CI uses 960x540)")
     r.add_argument("--no-perf", action="store_true",
                    help="skip the full-song RenderProfiler run")
+    r.add_argument("--pref", action="append", default=[], metavar="KEY=VALUE",
+                   help="extra [Options] preference, e.g. RenderWithShaders=0")
     c = sub.add_parser("compare")
     c.add_argument("baseline")
     c.add_argument("new")

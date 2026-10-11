@@ -532,6 +532,29 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size) {
   return at;
 }
 
+/* What the RageDisplay setters last asked for. Every fixed-function change
+ * goes through them, so this is also what GL holds; unlike g_cache it is never
+ * "unknown", and the shader pipeline reads it without glGet. thread_local and
+ * reset to GL's defaults per context, like g_stream. */
+struct FixedFunctionState {
+  int generation = -1;
+  GLuint program = 0;  // from SetEffectMode / SetCelShaded; 0 for none
+  bool tex_enabled[NUM_TextureUnit] = {};
+  TextureMode tex_mode[NUM_TextureUnit] = {};  // GL_MODULATE
+  bool texgen[NUM_TextureUnit] = {};
+  bool alpha_test = false;
+  bool lighting = false;
+};
+thread_local FixedFunctionState g_ff_state;
+
+FixedFunctionState& FF() {
+  if (g_ff_state.generation != g_iContextGeneration) {
+    g_ff_state = FixedFunctionState();
+    g_ff_state.generation = g_iContextGeneration;
+  }
+  return g_ff_state;
+}
+
 /* Binds p, first regrowing it to cover iPieces pieces of N indices each;
  * piece(i, out) writes the N indices of piece i. */
 template <int N, class Piece>
@@ -656,6 +679,9 @@ GLuint LoadShader(
   } else if (sFile == "Data/Shaders/GLSL/Shell.vert") {
     secondaryShader = CompileShader(
         GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Shell.frag", asDefines);
+  } else if (sFile == "Data/Shaders/GLSL/Fixed function.vert") {
+    secondaryShader = CompileShader(
+        GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Fixed function.frag", asDefines);
   } else if (sFile == "Data/Shaders/GLSL/Distance field.vert") {
     secondaryShader = CompileShader(
         GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Distance field.frag", asDefines);
@@ -705,6 +731,14 @@ static GLuint g_gShellShader = 0;
 static GLuint g_gCelShader = 0;
 static GLuint g_gDistanceFieldShader = 0;
 
+/* "Fixed function" program and its State uniform. The last uploaded value is
+ * global: program objects (and their uniforms) are shared between contexts,
+ * and only one thread renders at a time. */
+static Preference<bool> g_bRenderWithShaders("RenderWithShaders", true);
+static GLuint g_hFixedFunctionShader = 0;
+static GLint g_iFixedFunctionState = -1;
+static int g_aiFixedFunctionState[4];
+
 void InitShaders() {
   // xxx: replace this with a ShaderManager or something that reads in
   // the shaders and determines shader type by file extension. -aj
@@ -741,6 +775,23 @@ void InitShaders() {
       GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/Screen.frag", asDefines);
   g_hYUYV422Shader = LoadShader(
       GL_FRAGMENT_SHADER, "Data/Shaders/GLSL/YUYV422.frag", asDefines);
+
+  g_hFixedFunctionShader = 0;
+  if (g_bRenderWithShaders) {
+    g_hFixedFunctionShader = LoadShader(
+        GL_VERTEX_SHADER, "Data/Shaders/GLSL/Fixed function.vert", asDefines);
+  }
+  if (g_hFixedFunctionShader) {
+    CacheUseProgram(g_hFixedFunctionShader);
+    glUniform1i(glGetUniformLocation(g_hFixedFunctionShader, "Texture1"), 0);
+    glUniform1i(glGetUniformLocation(g_hFixedFunctionShader, "Texture2"), 1);
+    g_iFixedFunctionState =
+        glGetUniformLocation(g_hFixedFunctionShader, "State");
+    std::fill(
+        std::begin(g_aiFixedFunctionState), std::end(g_aiFixedFunctionState),
+        -1);
+    CacheUseProgram(0);
+  }
 
   // Bind attributes.
   if (g_bTextureMatrixShader) {
@@ -1261,7 +1312,55 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
       base + offsetof(RageSpriteVertex, n), stride);
 }
 
+/* Binds the program for the next draw: the one asked for, or with none, the
+ * "Fixed function" shader if it covers the state that is set. Otherwise GL's
+ * fixed-function pipeline draws. */
+static void UseDrawProgram() {
+  FixedFunctionState& ff = FF();
+  GLuint program = ff.program;
+  int state[4] = {0, 0, ff.alpha_test, 0};
+  if (program == 0 && g_hFixedFunctionShader != 0 && !ff.lighting) {
+    program = g_hFixedFunctionShader;
+    for (int tu = 0; tu < NUM_TextureUnit; ++tu) {
+      if (!ff.tex_enabled[tu]) {
+        continue;
+      }
+      // ponytail: the shader has two units and no texgen; others fall back.
+      if (tu >= 2 || ff.texgen[tu]) {
+        program = 0;
+        break;
+      }
+      switch (ff.tex_mode[tu]) {
+        case TextureMode_Modulate:
+          state[tu] = 1;
+          break;
+        case TextureMode_Add:
+          state[tu] = 2;
+          break;
+        case TextureMode_Glow:
+          state[tu] = 3;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  CacheUseProgram(program);
+  if (program == g_hFixedFunctionShader && program != 0 &&
+      !std::equal(
+          std::begin(state), std::end(state),
+          std::begin(g_aiFixedFunctionState))) {
+    CountGL(RenderProfiler::kGLOther);
+    glUniform4iv(g_iFixedFunctionState, 1, state);
+    std::copy(
+        std::begin(state), std::end(state), std::begin(g_aiFixedFunctionState));
+  }
+}
+
 void RageDisplay_Legacy::SendCurrentMatrices() {
+  UseDrawProgram();
+
   RageMatrix projection;
   RageMatrixMultiply(&projection, GetCentering(), GetProjectionTop());
 
@@ -1837,6 +1936,7 @@ void RageDisplay_Legacy::SetTexture(TextureUnit tu, uintptr_t iTexture) {
   if (!SetTextureUnit(tu)) {
     return;
   }
+  FF().tex_enabled[tu] = iTexture != 0;
 
   CacheEnable(
       GL_TEXTURE_2D, g_cache.tex_enabled[tu], iTexture != 0,
@@ -1849,6 +1949,10 @@ void RageDisplay_Legacy::SetTexture(TextureUnit tu, uintptr_t iTexture) {
 void RageDisplay_Legacy::SetTextureMode(TextureUnit tu, TextureMode tm) {
   if (!SetTextureUnit(tu)) {
     return;
+  }
+  if (tm == TextureMode_Modulate || tm == TextureMode_Add ||
+      tm == TextureMode_Glow) {
+    FF().tex_mode[tu] = tm;  // anything else leaves GL's env mode as it was
   }
 
   if (g_cache.tex_mode[tu] == tm) {
@@ -1970,11 +2074,12 @@ void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
       break;
   }
 
+  FF().program = hShader;
+  if (hShader == 0) {
+    return;  // the next draw picks its program
+  }
   DebugFlushGLErrors();
   CacheUseProgram(hShader);
-  if (hShader == 0) {
-    return;
-  }
   GLint iTexture1 = glGetUniformLocation(hShader, "Texture1");
   GLint iTexture2 = glGetUniformLocation(hShader, "Texture2");
   glUniform1i(iTexture1, 0);
@@ -2223,6 +2328,7 @@ void RageDisplay_Legacy::SetMaterial(
 }
 
 void RageDisplay_Legacy::SetLighting(bool b) {
+  FF().lighting = b;
   CacheEnable(GL_LIGHTING, g_cache.lighting, b, RenderProfiler::kGLLighting);
 }
 
@@ -2806,6 +2912,7 @@ std::string RageDisplay_Legacy::GetTextureDiagnostics(
  * SetDefault call These kinds of functions is wasteful. -Colby
  */
 void RageDisplay_Legacy::SetAlphaTest(bool b) {
+  FF().alpha_test = b;
   if (g_cache.alpha_test == static_cast<int>(b)) {
     return;
   }
@@ -2873,6 +2980,7 @@ void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
     return;
   }
 
+  FF().texgen[tu] = b;
   if (g_cache.texgen[tu] == static_cast<int>(b)) {
     return;
   }
@@ -2892,15 +3000,16 @@ void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
 GLint iCelTexture1, iCelTexture2 = 0;
 
 void RageDisplay_Legacy::SetCelShaded(int stage) {
+  // Bound by the next draw.
   switch (stage) {
     case 1:
-      CacheUseProgram(g_gShellShader);
+      FF().program = g_gShellShader;
       break;
     case 2:
-      CacheUseProgram(g_gCelShader);
+      FF().program = g_gCelShader;
       break;
     default:
-      CacheUseProgram(0);
+      FF().program = 0;
       break;
   }
 }
