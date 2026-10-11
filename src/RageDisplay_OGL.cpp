@@ -45,7 +45,6 @@ using namespace RageDisplay_Legacy_Helpers;
 
 #if defined(_MSC_VER)
 #pragma comment(lib, "opengl32.lib")
-#pragma comment(lib, "glu32.lib")
 #endif
 
 #ifdef NO_GL_FLUSH
@@ -66,9 +65,6 @@ static float g_point_range[2];
 
 /* OpenGL version * 10: */
 static int g_glVersion;
-
-/* GLU version * 10: */
-static int g_gluVersion;
 
 static int g_iMaxTextureUnits = 0;
 
@@ -803,10 +799,6 @@ static void CheckReversePackedPixels() {
 void SetupExtensions() {
   const float fGLVersion = StringToFloat((const char*)glGetString(GL_VERSION));
   g_glVersion = std::lrint(fGLVersion * 10);
-
-  const float fGLUVersion =
-      StringToFloat((const char*)gluGetString(GLU_VERSION));
-  g_gluVersion = std::lrint(fGLUVersion * 10);
 
 #ifndef HAVE_X11  // LLW_X11 needs to init GLEW early for GLX exts
   glewInit();
@@ -2298,27 +2290,6 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   GLenum glImageFormat = g_GLPixFmtInfo[SurfacePixFmt].format;
   GLenum glImageType = g_GLPixFmtInfo[SurfacePixFmt].type;
 
-  // HACK:  OpenGL 1.2 types aren't available in GLU 1.3.  Don't call GLU for
-  // mip mapping if we're using an OGL 1.2 type and don't have >= GLU 1.3.
-  // http://pyopengl.sourceforge.net/documentation/manual/gluBuild2DMipmaps.3G.html
-  if (bGenerateMipMaps && g_gluVersion < 13) {
-    switch (pixfmt) {
-      // OpenGL 1.1 types
-      case RagePixelFormat_RGBA8:
-      case RagePixelFormat_RGB8:
-      case RagePixelFormat_BGR8:
-        break;
-      // OpenGL 1.2 types
-      default:
-        LOG->Trace(
-            "Can't generate mipmaps for type %s because GLU version %.1f is "
-            "too old.",
-            GLToString(glImageType).c_str(), g_gluVersion / 10.f);
-        bGenerateMipMaps = false;
-        break;
-    }
-  }
-
   SetTextureUnit(TextureUnit_1);
 
   // allocate OpenGL texture resource
@@ -2713,7 +2684,7 @@ void RageDisplay_Legacy::SetLineWidth(float fWidth) { glLineWidth(fWidth); }
 std::string RageDisplay_Legacy::GetTextureDiagnostics(
     uintptr_t iTexture) const {
   /*
-          s << (bGenerateMipMaps? "gluBuild2DMipmaps":"glTexImage2D");
+          s << (bGenerateMipMaps? "glGenerateMipmap":"glTexImage2D");
           s << "(format " << GLToString(glTexFormat) <<
                           ", " << pImg->w << "x" <<  pImg->h <<
                           ", format " << GLToString(iFormat) <<
