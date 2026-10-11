@@ -237,7 +237,11 @@ void DoChangeGame() {
 }
 }  // namespace
 
+static uint64_t g_iFrameNumber = 0;
+uint64_t GameLoop::GetFrameNumber() { return g_iFrameNumber; }
+
 void GameLoop::UpdateAllButDraw() {
+  ++g_iFrameNumber;
   // If the constant update delta is set, use that value. Otherwise, use the
   // delta time from the gameplay timer.
   float fDeltaTime = (g_fConstantUpdateDeltaSeconds > 0)

@@ -1,6 +1,7 @@
 #ifndef GAME_LOOP_H
 #define GAME_LOOP_H
 
+#include <cstdint>
 #include <string>
 /** @brief Main rendering and update loop. */
 namespace GameLoop {
@@ -13,6 +14,8 @@ void ChangeGame(const std::string& new_game, const std::string& new_theme = "");
 void StartConcurrentRendering();
 void FinishConcurrentRendering();
 void ResetInputIdleTimer();
+// Increments once per UpdateAllButDraw; for "once per frame" guards.
+uint64_t GetFrameNumber();
 
 };  // namespace GameLoop
 

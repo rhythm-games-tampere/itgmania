@@ -15,6 +15,7 @@
 #include "EnumHelper.h"
 #include "GameConstantsAndTypes.h"
 #include "GameInput.h"
+#include "GameLoop.h"
 #include "GameState.h"
 #include "GhostArrowRow.h"
 #include "LuaBinding.h"
@@ -666,7 +667,14 @@ bool NoteDisplay::DrawRollHeadForTapsOnSameRow() const {
 
 void NoteDisplay::Update(float fDeltaTime) {
   /* This function is static: it's called once per game loop, not once per
-   * NoteDisplay.  Update each cached item exactly once. */
+   * NoteDisplay.  Update each cached item exactly once. Every NoteField calls
+   * this, so skip repeat calls within the same frame (this used to run 3x per
+   * frame in 2P, 2x in 1P). */
+  static uint64_t last_frame = UINT64_MAX;
+  if (GameLoop::GetFrameNumber() == last_frame) {
+    return;
+  }
+  last_frame = GameLoop::GetFrameNumber();
   std::map<NoteSkinAndPath, NoteResource*>::iterator it;
   for (auto& color_map : g_NoteResource) {
     for (it = color_map.second.begin(); it != color_map.second.end(); ++it) {
