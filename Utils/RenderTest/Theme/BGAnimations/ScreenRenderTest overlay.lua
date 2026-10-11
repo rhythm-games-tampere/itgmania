@@ -2,7 +2,12 @@
 local step = RenderTest.Next()
 
 if not step then
-	return Def.Actor{ OnCommand=function() SCREENMAN:SetNewScreen("ScreenExit") end }
+	return Def.Actor{
+		OnCommand=function()
+			Trace("RenderTest: done")
+			SCREENMAN:SetNewScreen("ScreenExit")
+		end,
+	}
 end
 
 if step.gameplay then

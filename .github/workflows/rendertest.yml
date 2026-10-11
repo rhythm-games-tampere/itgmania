@@ -1,0 +1,122 @@
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'Data/**'
+      - 'Themes/_fallback/**'
+      - 'NoteSkins/**'
+      - 'Utils/RenderTest/**'
+      - 'CMakeLists.txt'
+      - '*.cmake'
+      - '.github/workflows/rendertest.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Data/**'
+      - 'Themes/_fallback/**'
+      - 'NoteSkins/**'
+      - 'Utils/RenderTest/**'
+      - 'CMakeLists.txt'
+      - '*.cmake'
+      - '.github/workflows/rendertest.yml'
+  workflow_dispatch:
+
+name: Render test
+
+permissions:
+  contents: read
+  actions: read  # to download the previous run's screenshots
+
+# Runs Utils/RenderTest on software OpenGL (Mesa llvmpipe on Linux and
+# Windows, Apple's GL on macOS). Fails if the game crashes or doesn't finish
+# every step; pixel differences against the last successful run on the same
+# platform are reported in the job summary, not failed on, since rendering
+# work changes pixels on purpose.
+jobs:
+  rendertest:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: Linux
+          - os: macos-15
+            name: macOS
+          - os: windows-2022
+            name: Windows
+    name: ${{ matrix.name }}
+    env:
+      ARTIFACT: rendertest-${{ matrix.os }}
+      # Mesa: llvmpipe is deterministic; its D3D12 backend crashes the game.
+      GALLIUM_DRIVER: llvmpipe
+      LIBGL_ALWAYS_SOFTWARE: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        uses: ./.github/actions/setup-env
+        with:
+          os: ${{ matrix.os }}
+          ccache: 'true'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Pillow
+        run: python -m pip install pillow
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ${{ env.CMAKE_FLAGS }}
+      - name: Build
+        run: cmake --build build --config Release ${{ env.CMAKE_BUILD_FLAGS }}
+
+      - name: Install Mesa (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y xvfb libgl1-mesa-dri
+      - name: Install Mesa (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sSfL -o mesa.7z https://github.com/pal1000/mesa-dist-win/releases/download/26.2.3/mesa3d-26.2.3-release-msvc.7z
+          7z x -y -omesa mesa.7z "x64/opengl32.dll" "x64/libgallium_wgl.dll"
+          cp mesa/x64/opengl32.dll mesa/x64/libgallium_wgl.dll Program/
+
+      - name: Run
+        shell: bash
+        run: |
+          cmd="python Utils/RenderTest/rendertest.py run --out rendertest-out --timeout 1500"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1920x1080x24" $cmd
+          else
+            $cmd
+          fi
+
+      - name: Compare with the last successful run
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=""
+          for branch in "${{ github.head_ref || github.ref_name }}" "${{ github.event.repository.default_branch }}"; do
+            id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow rendertest.yml --branch "$branch" \
+                 --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+            [ -n "$id" ] && break
+          done
+          if [ -z "$id" ] || ! gh run download "$id" -R "$GITHUB_REPOSITORY" -n "$ARTIFACT" -D baseline; then
+            echo "No earlier successful run to compare with." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### ${{ matrix.name }}: compared with run $id"
+            echo '```'
+            python Utils/RenderTest/rendertest.py compare baseline rendertest-out || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: rendertest-out

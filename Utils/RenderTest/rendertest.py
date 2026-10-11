@@ -57,6 +57,8 @@ RandomBackgroundMode=Off
 BGBrightness=0.8
 EventMode=1
 SoundVolume=0
+SoundDrivers=Null
+AllowUnacceleratedRenderer=1
 ShowStats=0
 LogToDisk=1
 IgnoredDialogs=MissingThemeElement
@@ -118,10 +120,16 @@ def setup_root(renderer):
     if os.name == "nt":
         link(REPO / "Program", root / "Program")
         exe = root / "Program" / "ITGmania.exe"
+    elif sys.platform == "darwin":
+        # The game uses the folder containing the .app as its root.
+        app = root / "ITGmania.app"
+        shutil.rmtree(app, ignore_errors=True)  # a real copy, safe to delete
+        shutil.copytree(REPO / "ITGmania.app", app, symlinks=True)
+        exe = app / "Contents" / "MacOS" / "ITGmania"
     else:
-        # The game finds its data next to the real binary, so copy it.
-        exe = root / "itgmania"
-        shutil.copy(REPO / "itgmania", exe)
+        # The game uses the binary's directory as its root, so copy it.
+        exe = root / "ITGmania"
+        shutil.copy(REPO / "ITGmania", exe)
     make_character(root)
     (root / "Portable.ini").touch()
     for d in ("Logs", "Screenshots"):  # real directories, safe to clear
@@ -151,17 +159,23 @@ def run(args):
         shutil.copy(profiles[-1], out / "perf.json")
         shutil.copy(profiles[-1].with_suffix(".txt"), out / "perf.txt")
     log = root / "Logs" / "log.txt"
-    if log.exists():
+    text = log.read_text(errors="replace") if log.exists() else ""
+    if text:
         shutil.copy(log, out / "log.txt")
-        errors = [l for l in log.read_text(errors="replace").splitlines()
-                  if re.search(r"(?<!_)\berror\b|Dialog:", l, re.I)]
+        errors = [l for l in text.splitlines()
+                  if re.search(r"(?<!_)\berror\b|Dialog:|ok=false", l, re.I)]
         for l in errors[:20]:
             print("log:", l)
 
-    print(f"{len(shots)} screenshots, perf {'ok' if profiles else 'MISSING'} -> {out}")
+    # The theme logs this after its last step, so it means every step ran.
+    done = "RenderTest: done" in text
+    failed_shots = text.count("ok=false")
+    print(f"{len(shots)} screenshots ({failed_shots} failed), "
+          f"perf {'ok' if profiles else 'MISSING'}, "
+          f"{'all steps ran' if done else 'DID NOT FINISH'} -> {out}")
     if profiles:
         print_perf(json.loads((out / "perf.json").read_text()))
-    return 0 if shots and profiles else 1
+    return 0 if done and profiles and not failed_shots else 1
 
 
 PERF_ROWS = [
