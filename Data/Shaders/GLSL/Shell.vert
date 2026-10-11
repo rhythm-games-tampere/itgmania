@@ -1,5 +1,5 @@
-attribute vec4 Position;
-attribute vec3 Normal;
+in vec4 Position;
+in vec3 Normal;
 
 uniform mat4 ModelViewMatrix;
 uniform mat4 ProjectionMatrix;

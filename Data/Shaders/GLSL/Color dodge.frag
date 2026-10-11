@@ -2,8 +2,8 @@ uniform sampler2D Texture1;
 uniform sampler2D Texture2;
 
 // From Fixed function.vert.
-varying vec4 vColor;
-varying vec4 vTex0;
+in vec4 vColor;
+in vec4 vTex0;
 
 vec4 ApplyDodge( vec4 over, vec4 under, float fill )
 {
@@ -25,8 +25,8 @@ vec4 ApplyDodge( vec4 over, vec4 under, float fill )
 
 void main(void)
 {
-	vec4 under = texture2DProj( Texture1, vTex0 );
-	vec4 over = texture2DProj( Texture2, vTex0 );
+	vec4 under = textureProj( Texture1, vTex0 );
+	vec4 over = textureProj( Texture2, vTex0 );
 
 	vec4 ret = ApplyDodge( over, under, vColor.a );
 
@@ -39,7 +39,7 @@ void main(void)
 
 	ret.rgb /= ret.a;
 	
-	gl_FragColor = ret;
+	FragColor = ret;
 	return;
 }
 

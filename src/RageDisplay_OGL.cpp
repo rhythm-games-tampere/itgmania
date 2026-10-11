@@ -608,6 +608,27 @@ std::string GetInfoLog(GLuint h, bool bProgram) {
   return sRet;
 }
 
+/* The shaders are written for GLSL 3.30. Drivers without it (macOS's 2.1
+ * compatibility context) get GLSL 1.20 and macros for the 3.30 names. */
+static bool g_bGLSL330 = false;
+
+static const char* ShaderPreamble(GLenum ShaderType) {
+  if (g_bGLSL330) {
+    return ShaderType == GL_FRAGMENT_SHADER
+               ? "#version 330\nout vec4 FragColor;\n"
+               : "#version 330\n";
+  }
+  return ShaderType == GL_FRAGMENT_SHADER
+             ? "#version 120\n"
+               "#define in varying\n"
+               "#define FragColor gl_FragColor\n"
+               "#define texture texture2D\n"
+               "#define textureProj texture2DProj\n"
+             : "#version 120\n"
+               "#define in attribute\n"
+               "#define out varying\n";
+}
+
 GLuint CompileShader(
     GLenum ShaderType, std::string sFile, std::vector<std::string> asDefines) {
   std::string sBuffer;
@@ -632,6 +653,9 @@ GLuint CompileShader(
   GLuint hShader = glCreateShader(ShaderType);
   std::vector<const GLchar*> apData;
   std::vector<GLint> aiLength;
+  // #version has to come first.
+  apData.push_back(ShaderPreamble(ShaderType));
+  aiLength.push_back(strlen(apData.back()));
   for (std::string& s : asDefines) {
     s = ssprintf("#define %s\n", s.c_str());
     apData.push_back(s.data());
@@ -764,6 +788,16 @@ static GLuint InitProgram(const std::string& sVert, const std::string& sFrag) {
 /* Returns an error if the shader every draw depends on didn't load. */
 static std::string InitShaders() {
   g_Programs.clear();
+  int iMajor = 0, iMinor = 0;
+  const char* sGLSL =
+      reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
+  if (sGLSL != nullptr) {
+    sscanf(sGLSL, "%d.%d", &iMajor, &iMinor);
+  }
+  g_bGLSL330 = iMajor * 100 + iMinor >= 330;
+  LOG->Info(
+      "GLSL %s: compiling shaders as %s", sGLSL ? sGLSL : "?",
+      g_bGLSL330 ? "3.30" : "1.20");
   const char* ff = "Fixed function.vert";
   g_hFixedFunctionShader = InitProgram(ff, "Fixed function.frag");
 

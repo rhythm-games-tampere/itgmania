@@ -1,16 +1,16 @@
 uniform sampler2D Texture1;
 
 // From Fixed function.vert.
-varying vec4 vColor;
-varying vec4 vTex0;
+in vec4 vColor;
+in vec4 vTex0;
 
 void main(void)
 {
-	vec4 ret = texture2DProj( Texture1, vTex0 );
+	vec4 ret = textureProj( Texture1, vTex0 );
 	if( ret.a != 0.0 )
 		ret.rgb /= ret.a;
 
-	gl_FragColor = ret;
+	FragColor = ret;
 	return;
 }
 

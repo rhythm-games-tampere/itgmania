@@ -3,8 +3,8 @@ uniform sampler2D Texture2;
 uniform int TextureWidth;
 
 // From Fixed function.vert.
-varying vec4 vColor;
-varying vec4 vTex0;
+in vec4 vColor;
+in vec4 vTex0;
 
 /*
  * Convert from YUYV422 to RGB.
@@ -46,7 +46,7 @@ void main(void)
 
 	tex.x = fU;
 
-	vec4 yuyv = texture2D( Texture1, tex.xy );
+	vec4 yuyv = texture( Texture1, tex.xy );
 
 	vec3 yuv;
 	if( fOdd <= 0.5 )
@@ -61,10 +61,10 @@ void main(void)
 		1.1643, -0.39173, -0.81290, // G
 		1.1643,  2.017,    0.000);  // B
 
-	gl_FragColor.r=dot(yuv,conv[0]);
-	gl_FragColor.g=dot(yuv,conv[1]);
-	gl_FragColor.b=dot(yuv,conv[2]);
-	gl_FragColor.a = 1.0;
+	FragColor.r=dot(yuv,conv[0]);
+	FragColor.g=dot(yuv,conv[1]);
+	FragColor.b=dot(yuv,conv[2]);
+	FragColor.a = 1.0;
 
 	/* Why doesn't this work? */
 //	gl_FragColor.rgb = yuv * conv;

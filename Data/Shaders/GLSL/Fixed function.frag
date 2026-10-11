@@ -7,9 +7,9 @@ uniform sampler2D Texture2;
 // [1]: vertex stage, see Fixed function.vert
 uniform ivec4 State[2];
 
-varying vec4 vColor;
-varying vec4 vTex0;
-varying vec4 vTex1;
+in vec4 vColor;
+in vec4 vTex0;
+in vec4 vTex1;
 
 vec4 TexEnv(int mode, vec4 previous, vec4 texel)
 {
@@ -25,10 +25,10 @@ void main(void)
 {
 	vec4 color = vColor;
 	if (State[0].x != 0)
-		color = TexEnv(State[0].x, color, texture2DProj(Texture1, vTex0));
+		color = TexEnv(State[0].x, color, textureProj(Texture1, vTex0));
 	if (State[0].y != 0)
-		color = TexEnv(State[0].y, color, texture2DProj(Texture2, vTex1));
+		color = TexEnv(State[0].y, color, textureProj(Texture2, vTex1));
 	if (State[0].z != 0 && !(color.a > 0.00390625))
 		discard;
-	gl_FragColor = color;
+	FragColor = color;
 }

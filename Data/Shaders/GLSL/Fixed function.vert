@@ -3,10 +3,10 @@
 
 // Vertex inputs, bound to fixed locations by LoadProgram. Both texture
 // units use TexCoord.
-attribute vec4 Position;
-attribute vec4 Color;
-attribute vec4 TexCoord;
-attribute vec3 Normal;
+in vec4 Position;
+in vec4 Color;
+in vec4 TexCoord;
+in vec3 Normal;
 
 // [1].x, [1].y: sphere map texgen on texture units 1 and 2
 // [1].z: lighting (0 off, 1 on without lights, 2 on with light 0)
@@ -14,7 +14,7 @@ attribute vec3 Normal;
 uniform ivec4 State[2];
 
 // How much of the texture matrix applies per vertex (RageModelVertex).
-attribute vec4 TextureMatrixScale;
+in vec4 TextureMatrixScale;
 
 uniform mat4 ModelViewMatrix;
 uniform mat4 ProjectionMatrix;
@@ -35,9 +35,9 @@ uniform vec4 LightPosition;
 // GL_LIGHT_MODEL_AMBIENT, never changed from its default.
 const vec4 LightModelAmbient = vec4(0.2, 0.2, 0.2, 1.0);
 
-varying vec4 vColor;
-varying vec4 vTex0;
-varying vec4 vTex1;
+out vec4 vColor;
+out vec4 vTex0;
+out vec4 vTex1;
 
 // GL_SPHERE_MAP: s and t from the eye-space reflection vector.
 vec4 SphereMap(vec4 tex, vec3 eye, vec3 normal)
