@@ -326,8 +326,9 @@ void LightsManager::Update(float fDeltaTime) {
         int currLightPlayerNumber = (cl & 1) == 1 ? 1 : 0;
         bool skipLightActivation = false;
 
-        auto playerOptions = GAMESTATE->m_pPlayerState[currLightPlayerNumber]
-                                 ->m_PlayerOptions.GetCurrent();
+        const auto& playerOptions =
+            GAMESTATE->m_pPlayerState[currLightPlayerNumber]
+                ->m_PlayerOptions.GetCurrent();
 
         if (cl == LIGHT_MARQUEE_UP_LEFT || cl == LIGHT_MARQUEE_UP_RIGHT ||
             cl == LIGHT_MARQUEE_LR_LEFT || cl == LIGHT_MARQUEE_LR_RIGHT) {
@@ -342,7 +343,7 @@ void LightsManager::Update(float fDeltaTime) {
           bool lightsBassParallel = PREFSMAN->m_bLightsBassParallel;
 
           int otherPn = currLightPlayerNumber == 0 ? 1 : 0;
-          auto otherPlayerOptions =
+          const auto& otherPlayerOptions =
               GAMESTATE->m_pPlayerState[otherPn]->m_PlayerOptions.GetCurrent();
 
           if (GAMESTATE->IsHumanPlayer((PlayerNumber)currLightPlayerNumber)) {
