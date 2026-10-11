@@ -544,6 +544,7 @@ struct FixedFunctionState {
   bool texgen[NUM_TextureUnit] = {};
   bool alpha_test = false;
   bool lighting = false;
+  int lights = 0;  // bit i: GL_LIGHT0 + i enabled
 };
 thread_local FixedFunctionState g_ff_state;
 
@@ -737,7 +738,7 @@ static GLuint g_gDistanceFieldShader = 0;
 static Preference<bool> g_bRenderWithShaders("RenderWithShaders", true);
 static GLuint g_hFixedFunctionShader = 0;
 static GLint g_iFixedFunctionState = -1;
-static int g_aiFixedFunctionState[4];
+static int g_aiFixedFunctionState[8];
 
 void InitShaders() {
   // xxx: replace this with a ShaderManager or something that reads in
@@ -1318,15 +1319,21 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
 static void UseDrawProgram() {
   FixedFunctionState& ff = FF();
   GLuint program = ff.program;
-  int state[4] = {0, 0, ff.alpha_test, 0};
-  if (program == 0 && g_hFixedFunctionShader != 0 && !ff.lighting) {
+  // State[0]: texture modes of units 1 and 2, alpha test. State[1]: sphere
+  // map on units 1 and 2, lighting (2 with light 0 on).
+  int state[8] = {0, 0, ff.alpha_test, 0, 0, 0, 0, 0};
+  // ponytail: light 0 is the only one anything turns on; others fall back.
+  if (program == 0 && g_hFixedFunctionShader != 0 && (ff.lights & ~1) == 0) {
     program = g_hFixedFunctionShader;
+    if (ff.lighting) {
+      state[6] = ff.lights != 0 ? 2 : 1;
+    }
     for (int tu = 0; tu < NUM_TextureUnit; ++tu) {
       if (!ff.tex_enabled[tu]) {
         continue;
       }
-      // ponytail: the shader has two units and no texgen; others fall back.
-      if (tu >= 2 || ff.texgen[tu]) {
+      // ponytail: the shader has two texture units; more fall back.
+      if (tu >= 2) {
         program = 0;
         break;
       }
@@ -1343,6 +1350,7 @@ static void UseDrawProgram() {
         default:
           break;
       }
+      state[4 + tu] = ff.texgen[tu];
     }
   }
 
@@ -1352,7 +1360,7 @@ static void UseDrawProgram() {
           std::begin(state), std::end(state),
           std::begin(g_aiFixedFunctionState))) {
     CountGL(RenderProfiler::kGLOther);
-    glUniform4iv(g_iFixedFunctionState, 1, state);
+    glUniform4iv(g_iFixedFunctionState, 2, state);
     std::copy(
         std::begin(state), std::end(state), std::begin(g_aiFixedFunctionState));
   }
@@ -2333,6 +2341,7 @@ void RageDisplay_Legacy::SetLighting(bool b) {
 }
 
 void RageDisplay_Legacy::SetLightOff(int index) {
+  FF().lights &= ~(1 << index);
   glDisable(GL_LIGHT0 + index);
 }
 
@@ -2347,6 +2356,7 @@ void RageDisplay_Legacy::SetLightDirectional(
   glPushMatrix();
   glLoadIdentity();
 
+  FF().lights |= 1 << index;
   glEnable(GL_LIGHT0 + index);
   glLightfv(GL_LIGHT0 + index, GL_AMBIENT, ambient);
   glLightfv(GL_LIGHT0 + index, GL_DIFFUSE, diffuse);

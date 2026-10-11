@@ -17,6 +17,7 @@ RenderTest = {
 		{ name = "aft", scene = "aft" },
 		{ name = "lines", scene = "lines" },
 		{ name = "model", scene = "model" },
+		{ name = "lighting", scene = "lighting" },
 		{ name = "banners", scene = "banners" },
 		{ name = "gameplay-default-cel", gameplay = true, skins = { "default", "cel" },
 		  shots = { [420] = "intro", [1500] = "notes" } },
