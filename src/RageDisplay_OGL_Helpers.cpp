@@ -46,18 +46,6 @@ std::string RageDisplay_Legacy_Helpers::GLToString(GLenum e) {
 
   return ssprintf("%i", int(e));
 }
-/*
-static void GetGLExtensions( std::set<string> &ext )
-{
-        const char *szBuf = (const char *) glGetString( GL_EXTENSIONS );
-
-        std::vector<std::string> asList;
-        split( szBuf, " ", asList );
-
-        for( unsigned i = 0; i < asList.size(); ++i )
-                ext.insert( asList[i] );
-}
-*/
 
 /*
  * Copyright (c) 2001-2011 Chris Danford, Glenn Maynard, Colby Klein

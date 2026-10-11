@@ -833,9 +833,21 @@ std::string RageDisplay_Legacy::Init(
   /* Pretty-print the extension string: */
   LOG->Info("OGL Extensions:");
   {
-    const char* szExtensionString = (const char*)glGetString(GL_EXTENSIONS);
+    // glGetString(GL_EXTENSIONS) is gone in core profiles; macOS's 2.1
+    // compatibility context has no glGetStringi.
     std::vector<std::string> asExtensions;
-    split(szExtensionString, " ", asExtensions);
+    if (GLEW_VERSION_3_0) {
+      GLint iNumExtensions = 0;
+      glGetIntegerv(GL_NUM_EXTENSIONS, &iNumExtensions);
+      for (GLint i = 0; i < iNumExtensions; ++i) {
+        asExtensions.push_back(
+            reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i)));
+      }
+    } else {
+      split(
+          reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS)), " ",
+          asExtensions);
+    }
     sort(asExtensions.begin(), asExtensions.end());
     size_t iNextToPrint = 0;
     while (iNextToPrint < asExtensions.size()) {
