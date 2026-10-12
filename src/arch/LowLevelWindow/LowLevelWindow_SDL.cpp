@@ -37,9 +37,10 @@ void MacOSX_StopAppEventLoop();  // archutils/Darwin/SMMain.mm
 static Preference<bool> g_bOpenGLCoreProfile("OpenGLCoreProfile", true);
 
 #if defined(__linux__)
-// "x11" or "wayland" (any SDL video driver, or a list to try in order); ""
-// lets SDL pick, which prefers Wayland.
-static Preference<std::string> g_sSDLVideoDriver("SDLVideoDriver", "x11");
+// SDL video drivers to try in order; "" lets SDL pick, which prefers
+// Wayland. X11 first, falling back to Wayland where there is no X server.
+static Preference<std::string> g_sSDLVideoDriver(
+    "SDLVideoDriver", "x11,wayland");
 #endif
 
 // Core 3.3; macOS gives 4.1 for any core request, and only forward
@@ -157,9 +158,6 @@ LowLevelWindow_SDL::~LowLevelWindow_SDL() {
     SDL_GL_MakeCurrent(m_pWindow, nullptr);
   }
   RunOnMainThread([this] {
-    if (m_BackgroundContext != nullptr) {
-      SDL_GL_DestroyContext(m_BackgroundContext);
-    }
     if (m_Context != nullptr) {
       SDL_GL_DestroyContext(m_Context);
     }
@@ -177,17 +175,24 @@ void* LowLevelWindow_SDL::GetProcAddress(std::string s) {
 std::string LowLevelWindow_SDL::TryVideoMode(
     const VideoModeParams& p, bool& bNewDeviceOut) {
   std::string sError;
-  RunOnMainThread([&] { sError = SetVideoMode(p, bNewDeviceOut); });
-  if (bNewDeviceOut) {
+  bool bNewContext = false;
+  RunOnMainThread([&] { sError = SetVideoMode(p, bNewContext); });
+  if (bNewContext) {
     // Rendering happens on this thread, which isn't the one the contexts were
     // made on with macOS.
     if (!SDL_GL_MakeCurrent(m_pWindow, m_Context)) {
+      bNewDeviceOut = false;
       return ssprintf("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
     }
+    m_bNewContextPending = true;
   }
+  // A failed mode can still have made the context; RageDisplay only sets
+  // the new one up after a mode that works, so report it then.
+  bNewDeviceOut = sError.empty() && m_bNewContextPending;
   if (!sError.empty()) {
     return sError;
   }
+  m_bNewContextPending = false;
   if (!SDL_GL_SetSwapInterval(p.vsync ? 1 : 0)) {
     LOG->Warn("SDL_GL_SetSwapInterval failed: %s", SDL_GetError());
   }
@@ -228,13 +233,6 @@ std::string LowLevelWindow_SDL::SetVideoMode(
     }
     if (m_Context == nullptr) {
       return ssprintf("SDL_GL_CreateContext failed: %s", SDL_GetError());
-    }
-    // Creating a context makes it current, so make the shared one second.
-    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
-    m_BackgroundContext = SDL_GL_CreateContext(m_pWindow);
-    if (m_BackgroundContext == nullptr) {
-      LOG->Warn(
-          "No shared GL context for background loading: %s", SDL_GetError());
     }
     // Creating a context makes it current here; TryVideoMode makes m_Context
     // current on the rendering thread.
@@ -437,14 +435,4 @@ void LowLevelWindow_SDL::Update() {
       }
     }
   }
-}
-
-void LowLevelWindow_SDL::BeginConcurrentRendering() {
-  if (!SDL_GL_MakeCurrent(m_pWindow, m_BackgroundContext)) {
-    FAIL_M(ssprintf("SDL_GL_MakeCurrent failed: %s", SDL_GetError()));
-  }
-}
-
-void LowLevelWindow_SDL::EndConcurrentRendering() {
-  SDL_GL_MakeCurrent(m_pWindow, nullptr);
 }

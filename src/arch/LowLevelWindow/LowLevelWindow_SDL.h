@@ -38,9 +38,10 @@ class LowLevelWindow_SDL : public LowLevelWindow {
 
   bool SupportsFullscreenBorderlessWindow() const { return true; }
 
-  bool SupportsThreadedRendering() { return m_BackgroundContext != nullptr; }
-  void BeginConcurrentRendering();
-  void EndConcurrentRendering();
+  // ponytail: no threaded rendering. The X11 way (the loading thread's
+  // context moves to another window) needs a second window here, and two
+  // contexts on one EGL surface fail. Add it if concurrent rendering is ever
+  // used again (nothing calls GameLoop::StartConcurrentRendering).
 
  private:
   std::string SetVideoMode(const VideoModeParams& p, bool& bNewDeviceOut);
@@ -48,8 +49,9 @@ class LowLevelWindow_SDL : public LowLevelWindow {
 
   SDL_Window* m_pWindow = nullptr;
   SDL_GLContextState* m_Context = nullptr;
-  // Shares objects with m_Context; current on the loading thread.
-  SDL_GLContextState* m_BackgroundContext = nullptr;
+  // m_Context was made by a TryVideoMode that failed; the next one that
+  // succeeds reports it as a new device.
+  bool m_bNewContextPending = false;
   ActualVideoModeParams m_Params;
 };
 
