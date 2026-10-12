@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <map>
+#include <set>
 #include <vector>
 
 #include "InputHandler.h"
@@ -29,7 +30,7 @@ class InputHandler_SDL : public InputHandler {
 
   bool m_bKeyboard = false;  // the SDL window is up
   bool m_bDevicesChanged = false;
-  bool m_bHadFocus = true;
+  std::set<uint32_t> m_StartupJoysticks;  // SDL_JoystickIDs, opened or not
   // SDL_JoystickID -> open joystick and its DEVICE_JOYn.
   struct Joystick {
     SDL_Joystick* pJoystick;

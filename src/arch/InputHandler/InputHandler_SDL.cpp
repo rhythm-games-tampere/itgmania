@@ -9,7 +9,6 @@
 #include "InputFilter.h"
 #include "RageLog.h"
 #include "RageUtil.h"
-#include "arch/ArchHooks/ArchHooks.h"
 #include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "global.h"
 
@@ -163,6 +162,9 @@ InputHandler_SDL::InputHandler_SDL() {
   // messages only carry GetMessageTime's ~16 ms ticks.
   SDL_SetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD, "1");
   SDL_SetHint(SDL_HINT_AUTO_UPDATE_JOYSTICKS, "0");
+  // Pads keep working while another window has focus, like DirectInput's
+  // DISCL_BACKGROUND and the Linux and macOS handlers.
+  SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
   if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
     LOG->Warn("SDL joystick init failed: %s", SDL_GetError());
   }
@@ -176,6 +178,7 @@ InputHandler_SDL::InputHandler_SDL() {
   int iCount = 0;
   SDL_JoystickID* pIds = SDL_GetJoysticks(&iCount);
   for (int i = 0; i < iCount; ++i) {
+    m_StartupJoysticks.insert(pIds[i]);
     OpenJoystick(pIds[i]);
   }
   SDL_free(pIds);
@@ -200,6 +203,7 @@ InputHandler_SDL::~InputHandler_SDL() {
   }
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
   SDL_ResetHint(SDL_HINT_AUTO_UPDATE_JOYSTICKS);
+  SDL_ResetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS);
 }
 
 int InputHandler_SDL::JoystickThread_Start(void* p) {
@@ -231,16 +235,6 @@ void InputHandler_SDL::OpenJoystick(uint32_t id) {
 }
 
 void InputHandler_SDL::Update() {
-  // Joystick events stop while the window is in the background; release
-  // whatever was held, like DirectInput does.
-  const bool bFocus = HOOKS->AppHasFocus();
-  if (m_bHadFocus && !bFocus) {
-    for (const auto& j : m_Joysticks) {
-      INPUTFILTER->ResetDevice(j.second.dev);
-    }
-  }
-  m_bHadFocus = bFocus;
-
 #if defined(MACOSX)
   // The joystick thread reads values (IOHIDDeviceGetValue works on any
   // thread), but IOKit's hotplug callbacks only run in the run loop of the
@@ -292,16 +286,19 @@ void InputHandler_SDL::Update() {
       case SDL_EVENT_MOUSE_WHEEL: {
         // In Windows' units (WHEEL_DELTA per notch), like DirectInput.
         INPUTFILTER->UpdateMouseWheel(e.wheel.y * 120);
-        if (e.wheel.y != 0) {
+        // Whole notches only: trackpads scroll in many fractional steps.
+        if (e.wheel.integer_y != 0) {
           const DeviceButton b =
-              e.wheel.y > 0 ? MOUSE_WHEELUP : MOUSE_WHEELDOWN;
+              e.wheel.integer_y > 0 ? MOUSE_WHEELUP : MOUSE_WHEELDOWN;
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, 1, tm));
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, 0, tm));
         }
         break;
       }
       case SDL_EVENT_JOYSTICK_ADDED:
-        if (!m_Joysticks.count(e.jdevice.which)) {
+        // Not ones that were there at startup but couldn't be opened (or
+        // were over NUM_JOYSTICKS): recreating would find them again.
+        if (!m_StartupJoysticks.count(e.jdevice.which)) {
           m_bDevicesChanged = true;  // RageInput recreates the handlers
         }
         break;
