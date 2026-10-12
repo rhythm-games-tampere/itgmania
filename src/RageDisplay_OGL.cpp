@@ -241,8 +241,9 @@ static void FixLittleEndian() {
  * Mesa revalidates state on the CPU after every state call, changed or not, and
  * glGet* stalls mesa_glthread. -1 / false means unknown: the next set always
  * reaches GL. thread_local because concurrent rendering draws from a second
- * context on another thread. Invalidated on frame start, render target and
- * resolution changes, and concurrent rendering hand-offs. */
+ * context on another thread. g_cache is invalidated on frame start, render
+ * target and resolution changes; g_tex_params, which describes the texture
+ * objects, only on new contexts and concurrent rendering hand-offs. */
 namespace {
 using RenderProfiler::CountGL;
 
@@ -383,9 +384,11 @@ struct StreamBuffers {
   GLsizeiptr offset = 0;
   int quarter = 0;
   GLsync fences[4] = {};
-  // Without buffer storage, or for draws bigger than a quarter: respecified
-  // with glBufferData every draw, which the driver orphans.
+  // Without buffer storage (macOS): a ring written through unsynchronized
+  // maps, orphaned with glBufferData when it wraps. Draws bigger than the
+  // ring respecify it with their data instead.
   GLuint dynamic = 0;
+  GLsizeiptr dynamic_offset = 0;  // kStreamRingSize: orphan before writing
   PatternIndices quads, quad_strip, symmetric_strip;
 };
 thread_local StreamBuffers g_stream;
@@ -400,6 +403,7 @@ void CheckStreamGeneration() {
   g_stream = StreamBuffers();
   g_stream.generation = g_iContextGeneration;
   glGenBuffers(1, &g_stream.dynamic);
+  g_stream.dynamic_offset = kStreamRingSize;
   if (GLAD_GL_ARB_buffer_storage && GLAD_GL_ARB_sync) {
     const GLbitfield flags =
         GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
@@ -419,7 +423,27 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size) {
   CountGL(RenderProfiler::kGLVertexSetup);
   if (!g_stream.mapped || size > kQuarter) {
     CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.dynamic);
+    // glMapBufferRange is GL 3.0; macOS's 2.1 context respecifies instead.
+    if (GLAD_GL_VERSION_3_0 && size <= kStreamRingSize) {
+      GLintptr at = g_stream.dynamic_offset;
+      if (at + size > kStreamRingSize) {
+        // New storage; the GPU keeps reading the old until it's done.
+        glBufferData(GL_ARRAY_BUFFER, kStreamRingSize, nullptr, GL_STREAM_DRAW);
+        at = 0;
+      }
+      void* p = glMapBufferRange(
+          GL_ARRAY_BUFFER, at, size,
+          GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT |
+              GL_MAP_UNSYNCHRONIZED_BIT);
+      if (p != nullptr) {
+        memcpy(p, data, size);
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+        g_stream.dynamic_offset = at + size;
+        return at;
+      }
+    }
     glBufferData(GL_ARRAY_BUFFER, size, data, GL_STREAM_DRAW);
+    g_stream.dynamic_offset = kStreamRingSize;  // no longer ring-sized
     return 0;
   }
 
@@ -925,7 +949,13 @@ std::string RageDisplay_Legacy::Init(
   return std::string();
 }
 
-RageDisplay_Legacy::~RageDisplay_Legacy() { delete g_pWind; }
+static RageSurface* g_pLastFrame = nullptr;  // see ScreenshotBackBuffer
+
+RageDisplay_Legacy::~RageDisplay_Legacy() {
+  delete g_pLastFrame;
+  g_pLastFrame = nullptr;
+  delete g_pWind;
+}
 
 void RageDisplay_Legacy::GetDisplaySpecs(DisplaySpecs& out) const {
   out.clear();
@@ -1001,7 +1031,7 @@ bool RageDisplay_Legacy::UseOffscreenRenderTarget() {
 }
 
 void RageDisplay_Legacy::ResolutionChanged() {
-  InvalidateGLStateCache();
+  g_cache.Invalidate();  // same context; texture params still hold
   // LOG->Warn( "RageDisplay_Legacy::ResolutionChanged" );
 
   /* Clear any junk that's in the framebuffer. */
@@ -1119,7 +1149,6 @@ int RageDisplay_Legacy::GetMaxTextureSize() const {
 // and take screenshots from that copy. Reading the front buffer afterwards
 // returns black under Xvfb with Mesa. Costs a readback every frame.
 static Preference<bool> g_bScreenshotBackBuffer("ScreenshotBackBuffer", false);
-static RageSurface* g_pLastFrame = nullptr;
 
 // Reads a window color buffer (GL_FRONT or GL_BACK) into image, bottom row
 // first. Allocates a new RGBA8 surface if image is null or the wrong size.
@@ -1291,8 +1320,10 @@ static void SetVertexArrays(
 
 // Uploads v to the stream VBO and points the arrays at it.
 static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
-  static const bool bBGRA =
-      !!GLAD_GL_ARB_vertex_array_bgra || !!GLAD_GL_EXT_vertex_array_bgra;
+  // Core since 3.2, where drivers needn't list the extensions.
+  static const bool bBGRA = GLAD_GL_VERSION_3_2 ||
+                            GLAD_GL_ARB_vertex_array_bgra ||
+                            GLAD_GL_EXT_vertex_array_bgra;
   if (!bBGRA) {
     // No GL_BGRA vertex arrays: upload a copy with red and blue swapped.
     thread_local std::vector<RageSpriteVertex> vSwapped;
@@ -1974,6 +2005,7 @@ void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
       break;
     case EffectMode_DistanceField:
       hShader = g_gDistanceFieldShader;
+      break;
     default:
       break;
   }
@@ -2382,8 +2414,12 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   // allocate OpenGL texture resource
   uintptr_t iTexHandle = 0;  // glGenTextures fills only the low 32 bits
   glGenTextures(1, reinterpret_cast<GLuint*>(&iTexHandle));
-  g_tex_params.erase(static_cast<GLuint>(iTexHandle));  // ids get reused
   ASSERT(iTexHandle != 0);
+  // Ids get reused. No mip levels yet, which spares SetTextureFiltering a
+  // glGet below.
+  TexParams& params = g_tex_params[static_cast<GLuint>(iTexHandle)];
+  params = TexParams();
+  params.mipmapped = 0;
 
   CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
@@ -2429,11 +2465,16 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
   glFlush();
 
+  // Filtering was set before the mip levels were uploaded, so set it again
+  // on the next draw. Mipmapped the way SetTextureFiltering's glGet would
+  // find it: a level 1 exists only above 1 texel wide.
+  TexParams& uploaded = g_tex_params[static_cast<GLuint>(iTexHandle)];
+  uploaded.filter = -1;
+  uploaded.mipmapped = bGenerateMipMaps && power_of_two(pImg->w) > 1;
+
   if (bFreeImg) {
     delete pImg;
   }
-  // Filtering was set before the mip levels were uploaded; re-learn it.
-  g_tex_params.erase(static_cast<GLuint>(iTexHandle));
   return iTexHandle;
 }
 
@@ -2607,7 +2648,10 @@ void RenderTarget_FramebufferObject::Create(
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  g_tex_params.erase(static_cast<GLuint>(m_iTexHandle));  // set raw above
+  // Set raw above; no mip levels.
+  TexParams& params = g_tex_params[static_cast<GLuint>(m_iTexHandle)];
+  params = TexParams();
+  params.mipmapped = 0;
 
   /* Create the framebuffer object. */
   glGenFramebuffers(1, reinterpret_cast<GLuint*>(&m_iFrameBufferHandle));
@@ -2692,7 +2736,7 @@ static std::vector<RenderTarget*> g_vOuterRenderTargets;
 
 void RageDisplay_Legacy::SetRenderTarget(
     uintptr_t iTexture, bool bPreserveTexture) {
-  InvalidateGLStateCache();
+  g_cache.Invalidate();  // texture params live on the textures; keep them
   RenderTarget* pTarget = nullptr;
   if (iTexture != 0) {
     ASSERT(g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end());
@@ -2846,7 +2890,7 @@ void RageDisplay_Legacy::SetAlphaTest(bool b) { FF().alpha_test = b; }
 bool RageDisplay_Legacy::SupportsSurfaceFormat(RagePixelFormat pixfmt) {
   switch (g_GLPixFmtInfo[pixfmt].type) {
     case GL_UNSIGNED_SHORT_1_5_5_5_REV:
-      return GLAD_GL_EXT_bgra && g_bReversePackedPixelsWorks;
+      return g_bReversePackedPixelsWorks;
     default:
       return true;
   }
@@ -2861,16 +2905,9 @@ bool RageDisplay_Legacy::SupportsTextureFormat(
     return false;
   }
 
-  if (pixfmt == RagePixelFormat_PAL) {
-    return false;  // expanded to RGBA8 on upload instead
-  }
-  switch (g_GLPixFmtInfo[pixfmt].format) {
-    case GL_BGR:
-    case GL_BGRA:
-      return !!GLAD_GL_EXT_bgra;
-    default:
-      return true;
-  }
+  // GL_BGR and GL_BGRA are core since GL 1.2. Core profiles don't list
+  // GL_EXT_bgra, so don't ask for it.
+  return pixfmt != RagePixelFormat_PAL;  // paletted is expanded to RGBA8
 }
 
 bool RageDisplay_Legacy::SupportsPerVertexMatrixScale() { return true; }
@@ -2882,8 +2919,6 @@ void RageDisplay_Legacy::SetSphereEnvironmentMapping(TextureUnit tu, bool b) {
 
   FF().texgen[tu] = b;
 }
-
-GLint iCelTexture1, iCelTexture2 = 0;
 
 void RageDisplay_Legacy::SetCelShaded(int stage) {
   // Bound by the next draw.
