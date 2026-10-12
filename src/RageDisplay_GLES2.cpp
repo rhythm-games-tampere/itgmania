@@ -1,6 +1,10 @@
 #include "RageDisplay_GLES2.h"
 
-#include <GL/glew.h>
+#include <glad/gl.h>
+
+// ponytail: EXT_paletted_texture isn't in glad's extension list; only this
+// stub's format table still names it. Goes with the stub in D4.
+#define GL_COLOR_INDEX8_EXT 0x80E5
 
 #include <algorithm>
 #include <cstddef>
@@ -336,9 +340,6 @@ std::string RageDisplay_GLES2::Init(
     }
   }
 
-  glewExperimental = true;
-  glewInit();
-
   /* Log this, so if people complain that the radar looks bad on their
    * system we can compare them: */
   // glGetFloatv( GL_LINE_WIDTH_RANGE, g_line_range );
@@ -365,7 +366,12 @@ std::string RageDisplay_GLES2::TryVideoMode(
 
   if (bNewDeviceOut) {
     // NOTE: This isn't needed in an actual GLES2 context...
-    glewInit();
+    gladLoadGLUserPtr(
+        [](void* pWind, const char* sName) {
+          return reinterpret_cast<GLADapiproc>(
+              static_cast<LowLevelWindow*>(pWind)->GetProcAddress(sName));
+        },
+        g_pWind);
 
     /* We have a new OpenGL context, so we have to tell our textures that
      * their OpenGL texture number is invalid. */
