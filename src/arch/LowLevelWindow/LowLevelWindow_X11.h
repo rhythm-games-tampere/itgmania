@@ -25,9 +25,6 @@ class LowLevelWindow_X11 : public LowLevelWindow {
 
   void GetDisplaySpecs(DisplaySpecs& out) const;
 
-  bool SupportsRenderToTexture() const;
-  RenderTarget* CreateRenderTarget();
-
   bool SupportsFullscreenBorderlessWindow() const;
 
   bool SupportsThreadedRendering();

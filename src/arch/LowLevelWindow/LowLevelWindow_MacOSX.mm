@@ -110,7 +110,7 @@ class AutoreleasePool {
 }
 @end
 
-enum GLContextType { WINDOWED, FULL_SCREEN, PIXEL_BUFFER };
+enum GLContextType { WINDOWED, FULL_SCREEN };
 
 static NSOpenGLContext* CreateOGLContext(
     GLContextType type, int iColorSize, int iAlphaSize, int iDepthSize, NSOpenGLContext* share,
@@ -146,10 +146,6 @@ static NSOpenGLContext* CreateOGLContext(
       attrs[n + 3] =
           NSOpenGLPixelFormatAttribute(CGDisplayIDToOpenGLDisplayMask(kCGDirectMainDisplay));
       break;
-    case PIXEL_BUFFER:
-      attrs[n + 0] = NSOpenGLPFAOffScreen;
-      attrs[n + 1] = NSOpenGLPFAPixelBuffer;
-      break;
   }
 
   NSOpenGLPixelFormat* pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
@@ -174,114 +170,6 @@ static NSOpenGLContext* CreateOGLContext(
   [pixelFormat release];
 
   return context;
-}
-
-class RenderTarget_MacOSX : public RenderTarget {
- public:
-  RenderTarget_MacOSX(id shareContext);
-  ~RenderTarget_MacOSX();
-  void Create(const RenderTargetParam& param, int& iTextureWidthOut, int& iTextureHeightOut);
-  uintptr_t GetTexture() const { return static_cast<uintptr_t>(m_iTexHandle); }
-  void StartRenderingTo();
-  void FinishRenderingTo();
-
- private:
-  NSOpenGLContext *m_ShareContext, *m_OldContext, *m_PBufferContext;
-  GLuint m_iTexHandle;
-  int m_iWidth, m_iHeight;
-};
-
-RenderTarget_MacOSX::RenderTarget_MacOSX(id shareContext) {
-  m_ShareContext = shareContext;
-  m_OldContext = nil;
-  m_PBufferContext = nil;
-  m_iTexHandle = 0;
-  m_iWidth = 0;
-  m_iHeight = 0;
-}
-
-RenderTarget_MacOSX::~RenderTarget_MacOSX() {
-  AutoreleasePool pool;
-  [m_PBufferContext release];
-  if (m_iTexHandle) {
-    glDeleteTextures(1, &m_iTexHandle);
-  }
-}
-
-void RenderTarget_MacOSX::Create(
-    const RenderTargetParam& param, int& iTextureWidthOut, int& iTextureHeightOut) {
-  AutoreleasePool pool;
-  m_iWidth = param.iWidth;
-  m_iHeight = param.iHeight;
-
-  // PBuffer needs to be a power of 2.
-  int iTextureWidth = power_of_two(param.iWidth);
-  int iTextureHeight = power_of_two(param.iHeight);
-
-  // Create the PBuffer.
-  unsigned long format = param.bWithAlpha ? GL_RGBA : GL_RGB;
-  NSOpenGLPixelBuffer* PBuffer = [[NSOpenGLPixelBuffer alloc] initWithTextureTarget:GL_TEXTURE_2D
-                                                              textureInternalFormat:format
-                                                              textureMaxMipMapLevel:0  // No idea.
-                                                                         pixelsWide:iTextureWidth
-                                                                         pixelsHigh:iTextureHeight];
-  DEBUG_ASSERT(PBuffer);
-
-  // Create an OGL context.
-  bool bShared = false;
-  m_PBufferContext = CreateOGLContext(
-      PIXEL_BUFFER, 24, param.bWithAlpha ? 8 : 0, param.bWithDepthBuffer ? 16 : 0, m_ShareContext,
-      bShared);
-  DEBUG_ASSERT(m_PBufferContext);
-  DEBUG_ASSERT(bShared);
-  [m_PBufferContext setPixelBuffer:PBuffer
-                       cubeMapFace:0
-                       mipMapLevel:0
-              currentVirtualScreen:[m_ShareContext currentVirtualScreen]];
-  [PBuffer release];  // XXX: Hopefully this is retained by the PBufferContext.
-
-  glGenTextures(1, &m_iTexHandle);
-  glBindTexture(GL_TEXTURE_2D, m_iTexHandle);
-
-  while (glGetError() != GL_NO_ERROR);
-
-  iTextureWidthOut = iTextureWidth;
-  iTextureHeightOut = iTextureHeight;
-
-  glTexImage2D(
-      GL_TEXTURE_2D, 0, param.bWithAlpha ? GL_RGBA8 : GL_RGB8, iTextureWidth, iTextureHeight, 0,
-      param.bWithAlpha ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, nil);
-  GLenum error = glGetError();
-  ASSERT_M(error == GL_NO_ERROR, RageDisplay_Legacy_Helpers::GLToString(error));
-
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-}
-
-void RenderTarget_MacOSX::StartRenderingTo() {
-  DEBUG_ASSERT(!m_OldContext);
-  m_OldContext = [NSOpenGLContext currentContext];
-  [m_PBufferContext makeCurrentContext];
-  glViewport(0, 0, m_iWidth, m_iHeight);
-}
-
-void RenderTarget_MacOSX::FinishRenderingTo() {
-  DEBUG_ASSERT(m_OldContext);
-  glBindTexture(GL_TEXTURE_2D, m_iTexHandle);
-
-  while (glGetError() != GL_NO_ERROR);
-
-  glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_iWidth, m_iHeight);
-
-  GLenum error = glGetError();
-  ASSERT_M(error == GL_NO_ERROR, RageDisplay_Legacy_Helpers::GLToString(error));
-
-  glBindTexture(GL_TEXTURE_2D, 0);
-
-  [m_OldContext makeCurrentContext];
-  m_OldContext = nil;
 }
 
 LowLevelWindow_MacOSX::LowLevelWindow_MacOSX()
@@ -643,10 +531,6 @@ void LowLevelWindow_MacOSX::Update() {
   });
 
   DISPLAY->ResolutionChanged();
-}
-
-RenderTarget* LowLevelWindow_MacOSX::CreateRenderTarget() {
-  return new RenderTarget_MacOSX(m_Context);
 }
 
 void LowLevelWindow_MacOSX::BeginConcurrentRendering() {

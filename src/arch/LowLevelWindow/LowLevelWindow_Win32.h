@@ -18,8 +18,6 @@ class LowLevelWindow_Win32 : public LowLevelWindow {
   bool SupportsThreadedRendering();
   void BeginConcurrentRendering();
   void EndConcurrentRendering();
-  virtual bool SupportsRenderToTexture() const { return true; }
-  virtual RenderTarget* CreateRenderTarget();
 
   bool SupportsFullscreenBorderlessWindow() const { return true; }
 

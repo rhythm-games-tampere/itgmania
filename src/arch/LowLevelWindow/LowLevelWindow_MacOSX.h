@@ -34,9 +34,6 @@ class LowLevelWindow_MacOSX : public LowLevelWindow {
     return m_CurrentParams;
   }
 
-  bool SupportsRenderToTexture() const { return true; }
-  RenderTarget* CreateRenderTarget();
-
   bool SupportsThreadedRendering() { return m_BGContext; }
   void BeginConcurrentRendering();
 
