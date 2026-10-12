@@ -7,10 +7,10 @@
 #include <vector>
 
 #include "InputFilter.h"
-#include "arch/ArchHooks/ArchHooks.h"
-#include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "RageLog.h"
 #include "RageUtil.h"
+#include "arch/ArchHooks/ArchHooks.h"
+#include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "global.h"
 
 REGISTER_INPUT_HANDLER_CLASS(SDL);
@@ -34,57 +34,108 @@ static DeviceButton ScancodeToDeviceButton(SDL_Scancode sc) {
     return enum_add2(KEY_KP_C1, sc - SDL_SCANCODE_KP_1);
   }
   switch (sc) {
-    case SDL_SCANCODE_0: return KEY_C0;
-    case SDL_SCANCODE_RETURN: return KEY_ENTER;
-    case SDL_SCANCODE_ESCAPE: return KEY_ESC;
-    case SDL_SCANCODE_BACKSPACE: return KEY_BACK;
-    case SDL_SCANCODE_TAB: return KEY_TAB;
-    case SDL_SCANCODE_SPACE: return KEY_SPACE;
-    case SDL_SCANCODE_MINUS: return KEY_HYPHEN;
-    case SDL_SCANCODE_EQUALS: return KEY_EQUAL;
-    case SDL_SCANCODE_LEFTBRACKET: return KEY_LBRACKET;
-    case SDL_SCANCODE_RIGHTBRACKET: return KEY_RBRACKET;
-    case SDL_SCANCODE_BACKSLASH: return KEY_BACKSLASH;
-    case SDL_SCANCODE_NONUSBACKSLASH: return KEY_BACKSLASH;  // DIK_OEM_102
-    case SDL_SCANCODE_SEMICOLON: return KEY_SEMICOLON;
-    case SDL_SCANCODE_APOSTROPHE: return KEY_SQUOTE;
-    case SDL_SCANCODE_GRAVE: return KEY_ACCENT;
-    case SDL_SCANCODE_COMMA: return KEY_COMMA;
-    case SDL_SCANCODE_PERIOD: return KEY_PERIOD;
-    case SDL_SCANCODE_SLASH: return KEY_SLASH;
-    case SDL_SCANCODE_CAPSLOCK: return KEY_CAPSLOCK;
-    case SDL_SCANCODE_PRINTSCREEN: return KEY_PRTSC;
-    case SDL_SCANCODE_SCROLLLOCK: return KEY_SCRLLOCK;
-    case SDL_SCANCODE_PAUSE: return KEY_PAUSE;
-    case SDL_SCANCODE_INSERT: return KEY_INSERT;
-    case SDL_SCANCODE_HOME: return KEY_HOME;
-    case SDL_SCANCODE_PAGEUP: return KEY_PGUP;
-    case SDL_SCANCODE_DELETE: return KEY_DEL;
-    case SDL_SCANCODE_END: return KEY_END;
-    case SDL_SCANCODE_PAGEDOWN: return KEY_PGDN;
-    case SDL_SCANCODE_RIGHT: return KEY_RIGHT;
-    case SDL_SCANCODE_LEFT: return KEY_LEFT;
-    case SDL_SCANCODE_DOWN: return KEY_DOWN;
-    case SDL_SCANCODE_UP: return KEY_UP;
-    case SDL_SCANCODE_NUMLOCKCLEAR: return KEY_NUMLOCK;
-    case SDL_SCANCODE_KP_DIVIDE: return KEY_KP_SLASH;
-    case SDL_SCANCODE_KP_MULTIPLY: return KEY_KP_ASTERISK;
-    case SDL_SCANCODE_KP_MINUS: return KEY_KP_HYPHEN;
-    case SDL_SCANCODE_KP_PLUS: return KEY_KP_PLUS;
-    case SDL_SCANCODE_KP_ENTER: return KEY_KP_ENTER;
-    case SDL_SCANCODE_KP_0: return KEY_KP_C0;
-    case SDL_SCANCODE_KP_PERIOD: return KEY_KP_PERIOD;
-    case SDL_SCANCODE_KP_EQUALS: return KEY_KP_EQUAL;
-    case SDL_SCANCODE_APPLICATION: return KEY_MENU;
-    case SDL_SCANCODE_LCTRL: return KEY_LCTRL;
-    case SDL_SCANCODE_LSHIFT: return KEY_LSHIFT;
-    case SDL_SCANCODE_LALT: return KEY_LALT;
-    case SDL_SCANCODE_LGUI: return KEY_LMETA;
-    case SDL_SCANCODE_RCTRL: return KEY_RCTRL;
-    case SDL_SCANCODE_RSHIFT: return KEY_RSHIFT;
-    case SDL_SCANCODE_RALT: return KEY_RALT;
-    case SDL_SCANCODE_RGUI: return KEY_RMETA;
-    default: return DeviceButton_Invalid;
+    case SDL_SCANCODE_0:
+      return KEY_C0;
+    case SDL_SCANCODE_RETURN:
+      return KEY_ENTER;
+    case SDL_SCANCODE_ESCAPE:
+      return KEY_ESC;
+    case SDL_SCANCODE_BACKSPACE:
+      return KEY_BACK;
+    case SDL_SCANCODE_TAB:
+      return KEY_TAB;
+    case SDL_SCANCODE_SPACE:
+      return KEY_SPACE;
+    case SDL_SCANCODE_MINUS:
+      return KEY_HYPHEN;
+    case SDL_SCANCODE_EQUALS:
+      return KEY_EQUAL;
+    case SDL_SCANCODE_LEFTBRACKET:
+      return KEY_LBRACKET;
+    case SDL_SCANCODE_RIGHTBRACKET:
+      return KEY_RBRACKET;
+    case SDL_SCANCODE_BACKSLASH:
+      return KEY_BACKSLASH;
+    case SDL_SCANCODE_NONUSBACKSLASH:
+      return KEY_BACKSLASH;  // DIK_OEM_102
+    case SDL_SCANCODE_SEMICOLON:
+      return KEY_SEMICOLON;
+    case SDL_SCANCODE_APOSTROPHE:
+      return KEY_SQUOTE;
+    case SDL_SCANCODE_GRAVE:
+      return KEY_ACCENT;
+    case SDL_SCANCODE_COMMA:
+      return KEY_COMMA;
+    case SDL_SCANCODE_PERIOD:
+      return KEY_PERIOD;
+    case SDL_SCANCODE_SLASH:
+      return KEY_SLASH;
+    case SDL_SCANCODE_CAPSLOCK:
+      return KEY_CAPSLOCK;
+    case SDL_SCANCODE_PRINTSCREEN:
+      return KEY_PRTSC;
+    case SDL_SCANCODE_SCROLLLOCK:
+      return KEY_SCRLLOCK;
+    case SDL_SCANCODE_PAUSE:
+      return KEY_PAUSE;
+    case SDL_SCANCODE_INSERT:
+      return KEY_INSERT;
+    case SDL_SCANCODE_HOME:
+      return KEY_HOME;
+    case SDL_SCANCODE_PAGEUP:
+      return KEY_PGUP;
+    case SDL_SCANCODE_DELETE:
+      return KEY_DEL;
+    case SDL_SCANCODE_END:
+      return KEY_END;
+    case SDL_SCANCODE_PAGEDOWN:
+      return KEY_PGDN;
+    case SDL_SCANCODE_RIGHT:
+      return KEY_RIGHT;
+    case SDL_SCANCODE_LEFT:
+      return KEY_LEFT;
+    case SDL_SCANCODE_DOWN:
+      return KEY_DOWN;
+    case SDL_SCANCODE_UP:
+      return KEY_UP;
+    case SDL_SCANCODE_NUMLOCKCLEAR:
+      return KEY_NUMLOCK;
+    case SDL_SCANCODE_KP_DIVIDE:
+      return KEY_KP_SLASH;
+    case SDL_SCANCODE_KP_MULTIPLY:
+      return KEY_KP_ASTERISK;
+    case SDL_SCANCODE_KP_MINUS:
+      return KEY_KP_HYPHEN;
+    case SDL_SCANCODE_KP_PLUS:
+      return KEY_KP_PLUS;
+    case SDL_SCANCODE_KP_ENTER:
+      return KEY_KP_ENTER;
+    case SDL_SCANCODE_KP_0:
+      return KEY_KP_C0;
+    case SDL_SCANCODE_KP_PERIOD:
+      return KEY_KP_PERIOD;
+    case SDL_SCANCODE_KP_EQUALS:
+      return KEY_KP_EQUAL;
+    case SDL_SCANCODE_APPLICATION:
+      return KEY_MENU;
+    case SDL_SCANCODE_LCTRL:
+      return KEY_LCTRL;
+    case SDL_SCANCODE_LSHIFT:
+      return KEY_LSHIFT;
+    case SDL_SCANCODE_LALT:
+      return KEY_LALT;
+    case SDL_SCANCODE_LGUI:
+      return KEY_LMETA;
+    case SDL_SCANCODE_RCTRL:
+      return KEY_RCTRL;
+    case SDL_SCANCODE_RSHIFT:
+      return KEY_RSHIFT;
+    case SDL_SCANCODE_RALT:
+      return KEY_RALT;
+    case SDL_SCANCODE_RGUI:
+      return KEY_RMETA;
+    default:
+      return DeviceButton_Invalid;
   }
 }
 
@@ -100,10 +151,10 @@ static RageTimer ToRageTimer(Uint64 timestamp) {
 
 // Joystick axes in DirectInput's order.
 static const DeviceButton kAxes[][2] = {
-    {JOY_LEFT, JOY_RIGHT},         {JOY_UP, JOY_DOWN},
-    {JOY_Z_UP, JOY_Z_DOWN},        {JOY_ROT_LEFT, JOY_ROT_RIGHT},
-    {JOY_ROT_UP, JOY_ROT_DOWN},    {JOY_ROT_Z_UP, JOY_ROT_Z_DOWN},
-    {JOY_AUX_1, JOY_AUX_2},        {JOY_AUX_3, JOY_AUX_4},
+    {JOY_LEFT, JOY_RIGHT},      {JOY_UP, JOY_DOWN},
+    {JOY_Z_UP, JOY_Z_DOWN},     {JOY_ROT_LEFT, JOY_ROT_RIGHT},
+    {JOY_ROT_UP, JOY_ROT_DOWN}, {JOY_ROT_Z_UP, JOY_ROT_Z_DOWN},
+    {JOY_AUX_1, JOY_AUX_2},     {JOY_AUX_3, JOY_AUX_4},
 };
 
 InputHandler_SDL::InputHandler_SDL() {
@@ -115,9 +166,10 @@ InputHandler_SDL::InputHandler_SDL() {
   if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
     LOG->Warn("SDL joystick init failed: %s", SDL_GetError());
   }
-  for (Uint32 type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
-                      SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN,
-                      SDL_EVENT_MOUSE_BUTTON_UP, SDL_EVENT_MOUSE_WHEEL}) {
+  for (Uint32 type :
+       {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP, SDL_EVENT_MOUSE_MOTION,
+        SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP,
+        SDL_EVENT_MOUSE_WHEEL}) {
     SDL_SetEventEnabled(type, m_bKeyboard);
   }
 
@@ -140,9 +192,10 @@ InputHandler_SDL::~InputHandler_SDL() {
   for (auto& j : m_Joysticks) {
     SDL_CloseJoystick(j.second.pJoystick);
   }
-  for (Uint32 type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
-                      SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN,
-                      SDL_EVENT_MOUSE_BUTTON_UP, SDL_EVENT_MOUSE_WHEEL}) {
+  for (Uint32 type :
+       {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP, SDL_EVENT_MOUSE_MOTION,
+        SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP,
+        SDL_EVENT_MOUSE_WHEEL}) {
     SDL_SetEventEnabled(type, false);
   }
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
@@ -219,10 +272,17 @@ void InputHandler_SDL::Update() {
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         DeviceButton b = DeviceButton_Invalid;
         switch (e.button.button) {
-          case SDL_BUTTON_LEFT: b = MOUSE_LEFT; break;
-          case SDL_BUTTON_RIGHT: b = MOUSE_RIGHT; break;
-          case SDL_BUTTON_MIDDLE: b = MOUSE_MIDDLE; break;
-          default: break;
+          case SDL_BUTTON_LEFT:
+            b = MOUSE_LEFT;
+            break;
+          case SDL_BUTTON_RIGHT:
+            b = MOUSE_RIGHT;
+            break;
+          case SDL_BUTTON_MIDDLE:
+            b = MOUSE_MIDDLE;
+            break;
+          default:
+            break;
         }
         if (b != DeviceButton_Invalid) {
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, e.button.down, tm));
@@ -233,7 +293,8 @@ void InputHandler_SDL::Update() {
         // In Windows' units (WHEEL_DELTA per notch), like DirectInput.
         INPUTFILTER->UpdateMouseWheel(e.wheel.y * 120);
         if (e.wheel.y != 0) {
-          const DeviceButton b = e.wheel.y > 0 ? MOUSE_WHEELUP : MOUSE_WHEELDOWN;
+          const DeviceButton b =
+              e.wheel.y > 0 ? MOUSE_WHEELUP : MOUSE_WHEELDOWN;
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, 1, tm));
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, 0, tm));
         }

@@ -126,9 +126,10 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
     RageException::Throw("SDL_Init failed: %s", sError.c_str());
   }
   // Off until InputHandler_SDL takes them.
-  for (Uint32 type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
-                      SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN,
-                      SDL_EVENT_MOUSE_BUTTON_UP, SDL_EVENT_MOUSE_WHEEL}) {
+  for (Uint32 type :
+       {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP, SDL_EVENT_MOUSE_MOTION,
+        SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP,
+        SDL_EVENT_MOUSE_WHEEL}) {
     SDL_SetEventEnabled(type, false);
   }
 }
@@ -224,9 +225,10 @@ std::string LowLevelWindow_SDL::SetVideoMode(
     // current on the rendering thread.
     SDL_GL_MakeCurrent(m_pWindow, nullptr);
 #if defined(_WIN32)
-    GraphicsWindow::AdoptWindow(static_cast<HWND>(SDL_GetPointerProperty(
-        SDL_GetWindowProperties(m_pWindow), SDL_PROP_WINDOW_WIN32_HWND_POINTER,
-        nullptr)));
+    GraphicsWindow::AdoptWindow(
+        static_cast<HWND>(SDL_GetPointerProperty(
+            SDL_GetWindowProperties(m_pWindow),
+            SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr)));
 #endif
     bNewDeviceOut = true;
   }
@@ -339,8 +341,8 @@ void LowLevelWindow_SDL::LogDebugInformation() const {
   SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &iProfile);
   LOG->Info(
       "SDL %d.%d.%d, video driver %s, OpenGL %s profile",
-      SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
-      SDL_VERSIONNUM_MICRO(v), SDL_GetCurrentVideoDriver(),
+      SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v),
+      SDL_GetCurrentVideoDriver(),
       iProfile == SDL_GL_CONTEXT_PROFILE_CORE ? "core" : "compatibility");
 }
 
@@ -352,8 +354,9 @@ bool LowLevelWindow_SDL::IsSoftwareRenderer(std::string& sError) {
   LOG->Trace(
       "LowLevelWindow_SDL::IsSoftwareRenderer '%s', '%s'", sVendor.c_str(),
       sRenderer.c_str());
-  for (const char* s : {"GDI Generic", "llvmpipe", "softpipe",
-                        "Software Rasterizer", "Apple Software Renderer"}) {
+  for (const char* s :
+       {"GDI Generic", "llvmpipe", "softpipe", "Software Rasterizer",
+        "Apple Software Renderer"}) {
     if (sRenderer.find(s) != std::string::npos) {
       sError = "OpenGL hardware acceleration is not available.";
       return true;
@@ -407,7 +410,8 @@ void LowLevelWindow_SDL::Update() {
   }
 
   // A resized window renders at its new size (fullscreen sizes are fixed).
-  if (bResized && m_Params.windowed && !m_Params.bWindowIsFullscreenBorderless) {
+  if (bResized && m_Params.windowed &&
+      !m_Params.bWindowIsFullscreenBorderless) {
     int w = 0, h = 0;
     RunOnMainThread([&] { SDL_GetWindowSizeInPixels(m_pWindow, &w, &h); });
     if (w != m_Params.width || h != m_Params.height) {

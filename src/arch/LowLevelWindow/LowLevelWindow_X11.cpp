@@ -13,14 +13,15 @@
 using namespace RageDisplay_Legacy_Helpers;
 using namespace X11Helper;
 
-#include <cmath>
-#include <cstdint>
-#include <set>
-#include <string>
 #include <GL/glx.h>  // All sorts of stuff...
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrandr.h>
+
+#include <cmath>
+#include <cstdint>
+#include <set>
+#include <string>
 #if defined(HAVE_XINERAMA)
 #include <X11/extensions/Xinerama.h>
 #endif
@@ -639,8 +640,8 @@ std::string LowLevelWindow_X11::TryVideoMode(
     // XXX: These two might be server-global. I should look into whether
     // to try to preserve the original value on exit.
     else if (has("GLX_MESA_swap_control")) {
-      reinterpret_cast<PFNGLXSWAPINTERVALMESAPROC>(
-          proc("glXSwapIntervalMESA"))(iInterval);
+      reinterpret_cast<PFNGLXSWAPINTERVALMESAPROC>(proc("glXSwapIntervalMESA"))(
+          iInterval);
     } else if (has("GLX_SGI_swap_control")) {
       reinterpret_cast<PFNGLXSWAPINTERVALSGIPROC>(proc("glXSwapIntervalSGI"))(
           iInterval);
