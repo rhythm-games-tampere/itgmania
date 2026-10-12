@@ -40,10 +40,6 @@
 
 using namespace RageDisplay_Legacy_Helpers;
 
-#if defined(WINDOWS)
-#include <GL/wglew.h>
-#endif
-
 #if defined(_MSC_VER)
 #pragma comment(lib, "opengl32.lib")
 #endif
@@ -387,7 +383,7 @@ void CheckStreamGeneration() {
   g_stream = StreamBuffers();
   g_stream.generation = g_iContextGeneration;
   glGenBuffers(1, &g_stream.dynamic);
-  if (GLEW_ARB_buffer_storage && GLEW_ARB_sync) {
+  if (GLAD_GL_ARB_buffer_storage && GLAD_GL_ARB_sync) {
     const GLbitfield flags =
         GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
     glGenBuffers(1, &g_stream.ring);
@@ -836,7 +832,7 @@ std::string RageDisplay_Legacy::Init(
     // glGetString(GL_EXTENSIONS) is gone in core profiles; macOS's 2.1
     // compatibility context has no glGetStringi.
     std::vector<std::string> asExtensions;
-    if (GLEW_VERSION_3_0) {
+    if (GLAD_GL_VERSION_3_0) {
       GLint iNumExtensions = 0;
       glGetIntegerv(GL_NUM_EXTENSIONS, &iNumExtensions);
       for (GLint i = 0; i < iNumExtensions; ++i) {
@@ -937,17 +933,26 @@ static void CheckReversePackedPixels() {
   }
 }
 
-void SetupExtensions() {
+bool SetupExtensions() {
+  // Through the window's GetProcAddress, which also covers EGL (SDL on
+  // Wayland).
+  const int iLoaded = gladLoadGLUserPtr(
+      [](void* pWind, const char* sName) {
+        return reinterpret_cast<GLADapiproc>(
+            static_cast<LowLevelWindow*>(pWind)->GetProcAddress(sName));
+      },
+      g_pWind);
+  if (iLoaded == 0) {
+    return false;
+  }
+
   const float fGLVersion = StringToFloat((const char*)glGetString(GL_VERSION));
   g_glVersion = std::lrint(fGLVersion * 10);
-
-#ifndef HAVE_X11  // LLW_X11 needs to init GLEW early for GLX exts
-  glewInit();
-#endif
 
   glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, (GLint*)&g_iMaxTextureUnits);
 
   CheckReversePackedPixels();
+  return true;
 }
 
 bool RageDisplay_Legacy::UseOffscreenRenderTarget() {
@@ -1011,12 +1016,15 @@ std::string RageDisplay_Legacy::TryVideoMode(
 
   /* Now that we've initialized, we can search for extensions.  Do this before
    * InvalidateObjects, since AllocateBuffers needs it. */
-  SetupExtensions();
+  if (!SetupExtensions()) {
+    return "Couldn't load the OpenGL functions.";
+  }
 
   // Everything below uses the GL 3.0 names for shaders, buffers and FBOs.
   // macOS compatibility contexts stop at 2.1, but provide the same calls
   // through ARB_framebuffer_object.
-  if (!GLEW_VERSION_3_0 && !(GLEW_VERSION_2_1 && GLEW_ARB_framebuffer_object)) {
+  if (!GLAD_GL_VERSION_3_0 &&
+      !(GLAD_GL_VERSION_2_1 && GLAD_GL_ARB_framebuffer_object)) {
     return ssprintf(
         "OpenGL 3.0 or newer is required; this driver provides %s.",
         reinterpret_cast<const char*>(glGetString(GL_VERSION)));
@@ -1052,7 +1060,11 @@ std::string RageDisplay_Legacy::TryVideoMode(
 #if defined(WINDOWS)
   /* Set vsync the Windows way, if we can.  (What other extensions are there
    * to do this, for other archs?) */
-  if (wglewIsSupported("WGL_EXT_swap_control")) {
+  // Drivers only hand out wglSwapIntervalEXT with WGL_EXT_swap_control.
+  using SwapIntervalFunc = BOOL(WINAPI*)(int);
+  const auto wglSwapIntervalEXT = reinterpret_cast<SwapIntervalFunc>(
+      g_pWind->GetProcAddress("wglSwapIntervalEXT"));
+  if (wglSwapIntervalEXT != nullptr) {
     wglSwapIntervalEXT(p.vsync);
   } else {
     return std::string(
@@ -1262,7 +1274,7 @@ static void SetVertexArrays(
 // Uploads v to the stream VBO and points the arrays at it.
 static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   static const bool bBGRA =
-      !!GLEW_ARB_vertex_array_bgra || !!GLEW_EXT_vertex_array_bgra;
+      !!GLAD_GL_ARB_vertex_array_bgra || !!GLAD_GL_EXT_vertex_array_bgra;
   if (!bBGRA) {
     // No GL_BGRA vertex arrays: upload a copy with red and blue swapped.
     thread_local std::vector<RageSpriteVertex> vSwapped;
@@ -2356,7 +2368,7 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
   if (g_pWind->GetActualVideoModeParams().bAnisotropicFiltering &&
-      GLEW_EXT_texture_filter_anisotropic) {
+      GLAD_GL_EXT_texture_filter_anisotropic) {
     GLfloat fLargestSupportedAnisotropy;
     glGetFloatv(
         GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargestSupportedAnisotropy);
@@ -2560,7 +2572,7 @@ void RenderTarget_FramebufferObject::Create(
   CacheBindTexture(static_cast<GLuint>(m_iTexHandle));
   GLenum internalformat;
   GLenum type = param.bWithAlpha ? GL_RGBA : GL_RGB;
-  if (param.bFloat && (GLEW_VERSION_3_0 || GLEW_ARB_texture_float)) {
+  if (param.bFloat && (GLAD_GL_VERSION_3_0 || GLAD_GL_ARB_texture_float)) {
     internalformat = param.bWithAlpha ? GL_RGBA16F : GL_RGB16F;
   } else {
     internalformat = param.bWithAlpha ? GL_RGBA8 : GL_RGB8;
@@ -2814,7 +2826,7 @@ void RageDisplay_Legacy::SetAlphaTest(bool b) { FF().alpha_test = b; }
 bool RageDisplay_Legacy::SupportsSurfaceFormat(RagePixelFormat pixfmt) {
   switch (g_GLPixFmtInfo[pixfmt].type) {
     case GL_UNSIGNED_SHORT_1_5_5_5_REV:
-      return GLEW_EXT_bgra && g_bReversePackedPixelsWorks;
+      return GLAD_GL_EXT_bgra && g_bReversePackedPixelsWorks;
     default:
       return true;
   }
@@ -2835,7 +2847,7 @@ bool RageDisplay_Legacy::SupportsTextureFormat(
   switch (g_GLPixFmtInfo[pixfmt].format) {
     case GL_BGR:
     case GL_BGRA:
-      return !!GLEW_EXT_bgra;
+      return !!GLAD_GL_EXT_bgra;
     default:
       return true;
   }

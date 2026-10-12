@@ -1,6 +1,6 @@
 #include "LowLevelWindow_Win32.h"
 
-#include <GL/glew.h>
+#include <glad/gl.h>
 
 #include <cstdint>
 #include <string>
@@ -387,7 +387,7 @@ void RenderTarget_Win32::Create(
 
   GLenum internalformat;
   GLenum type = param.bWithAlpha ? GL_RGBA : GL_RGB;
-  if (param.bFloat && GLEW_ARB_texture_float) {
+  if (param.bFloat && GLAD_GL_ARB_texture_float) {
     internalformat = param.bWithAlpha ? GL_RGBA16F_ARB : GL_RGB16F_ARB;
   } else {
     internalformat = param.bWithAlpha ? GL_RGBA8 : GL_RGB8;

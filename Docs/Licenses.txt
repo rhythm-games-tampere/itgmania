@@ -134,7 +134,7 @@ No guarantee this list is accurate, please check the licenses of the individual
 projects.
 
 * ffmpeg: LGPL with some parts GPLv2
-* glew: Modified BSD + Mesa 3-D + Khronos License (all of them seem MITish to me)
+* glad: generated GL loader, public domain / CC0 (khrplatform.h: Apache 2.0)
 * IXWebSocket: BSD
 * jsoncpp: public domain or MIT depending on the jurisdiction
 * libjpeg: some permissive license

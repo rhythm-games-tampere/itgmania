@@ -1,6 +1,5 @@
 #include "LowLevelWindow_SDL.h"
 
-#include <GL/glew.h>
 #include <SDL3/SDL.h>
 
 #include <cmath>
@@ -10,6 +9,7 @@
 #include "DisplaySpec.h"
 #include "PrefsManager.h"
 #include "ProductInfo.h"
+#include "RageDisplay_OGL_Helpers.h"
 #include "RageException.h"
 #include "RageLog.h"
 #include "RageSurface.h"
@@ -98,10 +98,6 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
   // The window class name ArchHooks_Win32 looks for to hand a second
   // instance's command line to this one.
   SDL_RegisterApp(PRODUCT_ID, 0, nullptr);
-#elif defined(__linux__)
-  // ponytail: GLEW is built for GLX, so no Wayland (EGL) until it's replaced
-  // with glad (Phase B1).
-  SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
 #endif
   std::string sError;
   RunOnMainThread([&] {
@@ -155,10 +151,6 @@ std::string LowLevelWindow_SDL::TryVideoMode(
     if (!SDL_GL_MakeCurrent(m_pWindow, m_Context)) {
       return ssprintf("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
     }
-#if defined(HAVE_X11)
-    // RageDisplay_OGL leaves glewInit to LowLevelWindow_X11 on X11 builds.
-    glewInit();
-#endif
   }
   if (!sError.empty()) {
     return sError;

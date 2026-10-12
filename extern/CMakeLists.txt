@@ -1,6 +1,6 @@
 include(CMakeProject-hidapi.cmake)
 include(CMakeProject-lua.cmake)
-include(CMakeProject-glew.cmake)
+include(CMakeProject-glad.cmake)
 include(CMakeProject-json.cmake)
 include(CMakeProject-mad.cmake)
 include(CMakeProject-zlib.cmake)

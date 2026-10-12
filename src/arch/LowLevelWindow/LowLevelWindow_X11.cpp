@@ -13,13 +13,10 @@
 using namespace RageDisplay_Legacy_Helpers;
 using namespace X11Helper;
 
-#include <GL/glxew.h>
-
 #include <cmath>
 #include <cstdint>
 #include <set>
 #include <string>
-#define GLX_GLXEXT_PROTOTYPES
 #include <GL/glx.h>  // All sorts of stuff...
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
@@ -180,7 +177,6 @@ std::string LowLevelWindow_X11::TryVideoMode(
 
   if (g_pContext == nullptr || p.bpp != CurrentParams.bpp ||
       m_bWasWindowed != p.windowed) {
-    bool bFirstRun = g_pContext == nullptr;
     // Different depth, or we didn't make a window before. New context.
     bNewDeviceOut = true;
 
@@ -258,12 +254,6 @@ std::string LowLevelWindow_X11::TryVideoMode(
       XWindowEvent(Dpy, Win, StructureNotifyMask, &ev);
     } while (ev.type != MapNotify);
 
-    // I can't find official docs saying what happens if you re-init GLEW.
-    // I'll just assume the behavior is undefined.
-    if (bFirstRun) {
-      GLenum err = glewInit();
-      ASSERT(err == GLEW_OK);
-    }
   } else {
     // We're remodeling the existing window, and not touching the context.
     bNewDeviceOut = false;
@@ -631,21 +621,29 @@ std::string LowLevelWindow_X11::TryVideoMode(
 
   if (!p.windowed) {
     // Set our V-sync hint.
-    if (GLXEW_EXT_swap_control) {  // I haven't seen this actually implemented
-                                   // yet, but why not.
-      glXSwapIntervalEXT(Dpy, Win, CurrentParams.vsync ? 1 : 0);
+    // glXGetProcAddress returns something for any name, so check the
+    // extension string first.
+    const std::string sExtensions =
+        ssprintf(" %s ", glXQueryExtensionsString(Dpy, DefaultScreen(Dpy)));
+    auto has = [&](const char* s) {
+      return sExtensions.find(ssprintf(" %s ", s)) != std::string::npos;
+    };
+    auto proc = [](const char* s) {
+      return glXGetProcAddressARB(reinterpret_cast<const GLubyte*>(s));
+    };
+    const int iInterval = CurrentParams.vsync ? 1 : 0;
+    if (has("GLX_EXT_swap_control")) {
+      reinterpret_cast<PFNGLXSWAPINTERVALEXTPROC>(proc("glXSwapIntervalEXT"))(
+          Dpy, Win, iInterval);
     }
     // XXX: These two might be server-global. I should look into whether
     // to try to preserve the original value on exit.
-#ifdef GLXEW_MESA_swap_control  // Added in 1.7. 1.6 is still common out there
-                                // apparently.
-    else if (GLXEW_MESA_swap_control) {  // Haven't seen this NOT implemented
-                                         // yet
-      glXSwapIntervalMESA(CurrentParams.vsync ? 1 : 0);
-    }
-#endif
-    else if (GLXEW_SGI_swap_control) {  // But old GLEW.
-      glXSwapIntervalSGI(CurrentParams.vsync ? 1 : 0);
+    else if (has("GLX_MESA_swap_control")) {
+      reinterpret_cast<PFNGLXSWAPINTERVALMESAPROC>(
+          proc("glXSwapIntervalMESA"))(iInterval);
+    } else if (has("GLX_SGI_swap_control")) {
+      reinterpret_cast<PFNGLXSWAPINTERVALSGIPROC>(proc("glXSwapIntervalSGI"))(
+          iInterval);
     } else {
       CurrentParams.vsync = false;  // Assuming it's not on
     }

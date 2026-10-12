@@ -389,7 +389,7 @@ list(APPEND SMDATA_LINK_LIB "lua-5.1" "miniz")
 
 list(APPEND SMDATA_LINK_LIB "mad"
                             "pcre"
-                            "glew"
+                            "glad"
                             "tomcrypt"
                             "tommath"
                             "stb_image"

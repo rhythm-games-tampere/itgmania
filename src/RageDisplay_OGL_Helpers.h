@@ -11,7 +11,7 @@
 #include <windows.h>
 #endif
 
-#include <GL/glew.h>
+#include <glad/gl.h>
 
 /** @brief Utilities for working with the RageDisplay. */
 namespace RageDisplay_Legacy_Helpers {
