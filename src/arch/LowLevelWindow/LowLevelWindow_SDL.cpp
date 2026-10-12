@@ -7,6 +7,7 @@
 #include <string>
 
 #include "DisplaySpec.h"
+#include "Preference.h"
 #include "PrefsManager.h"
 #include "ProductInfo.h"
 #include "RageDisplay_OGL_Helpers.h"
@@ -29,6 +30,22 @@
 #include <dispatch/dispatch.h>
 #include <pthread.h>
 #endif
+
+// Off asks for a compatibility context, like the platform windows.
+static Preference<bool> g_bOpenGLCoreProfile("OpenGLCoreProfile", true);
+
+// Core 3.3; macOS gives 4.1 for any core request, and only forward
+// compatible ones.
+static void SetCoreProfileAttributes(bool bCore) {
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, bCore ? 3 : 2);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, bCore ? 3 : 1);
+  SDL_GL_SetAttribute(
+      SDL_GL_CONTEXT_PROFILE_MASK, bCore ? SDL_GL_CONTEXT_PROFILE_CORE : 0);
+#if defined(MACOSX)
+  SDL_GL_SetAttribute(
+      SDL_GL_CONTEXT_FLAGS, bCore ? SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG : 0);
+#endif
+}
 
 void RunOnMainThread(const std::function<void()>& f) {
 #if defined(MACOSX)
@@ -175,6 +192,7 @@ std::string LowLevelWindow_SDL::SetVideoMode(
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, iColorBits);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SetCoreProfileAttributes(g_bOpenGLCoreProfile.Get());
 
     m_pWindow = SDL_CreateWindow(
         p.sWindowTitle.c_str(), p.width, p.height,
@@ -184,6 +202,14 @@ std::string LowLevelWindow_SDL::SetVideoMode(
     }
 
     m_Context = SDL_GL_CreateContext(m_pWindow);
+    if (m_Context == nullptr && g_bOpenGLCoreProfile.Get()) {
+      // Drivers without GL 3.2 have no core profile.
+      LOG->Warn(
+          "No OpenGL core profile context (%s); trying compatibility.",
+          SDL_GetError());
+      SetCoreProfileAttributes(false);
+      m_Context = SDL_GL_CreateContext(m_pWindow);
+    }
     if (m_Context == nullptr) {
       return ssprintf("SDL_GL_CreateContext failed: %s", SDL_GetError());
     }
@@ -309,10 +335,13 @@ void LowLevelWindow_SDL::GetDisplaySpecsOnMainThread(DisplaySpecs& out) {
 
 void LowLevelWindow_SDL::LogDebugInformation() const {
   const int v = SDL_GetVersion();
+  int iProfile = 0;
+  SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &iProfile);
   LOG->Info(
-      "SDL %d.%d.%d, video driver %s", SDL_VERSIONNUM_MAJOR(v),
-      SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v),
-      SDL_GetCurrentVideoDriver());
+      "SDL %d.%d.%d, video driver %s, OpenGL %s profile",
+      SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
+      SDL_VERSIONNUM_MICRO(v), SDL_GetCurrentVideoDriver(),
+      iProfile == SDL_GL_CONTEXT_PROFILE_CORE ? "core" : "compatibility");
 }
 
 bool LowLevelWindow_SDL::IsSoftwareRenderer(std::string& sError) {

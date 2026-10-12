@@ -287,6 +287,22 @@ void InvalidateGLStateCache() {
   g_tex_params.clear();
 }
 
+// Core profiles draw nothing without a vertex array object, and they aren't
+// shared between contexts: each context gets one and keeps it bound. Needs a
+// current context.
+static void BindVertexArrayObject() {
+  if (!GLAD_GL_VERSION_3_0) {
+    return;  // macOS's 2.1 compatibility context; it has a default one
+  }
+  GLint iBound = 0;
+  glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &iBound);
+  if (iBound == 0) {
+    GLuint id = 0;
+    glGenVertexArrays(1, &id);
+    glBindVertexArray(id);
+  }
+}
+
 void CacheActiveUnit(int unit) {
   if (g_cache.active_unit == unit) {
     return;
@@ -1048,6 +1064,7 @@ std::string RageDisplay_Legacy::TryVideoMode(
     ++g_iContextGeneration;
     // The cache describes the old context; InitShaders binds programs.
     InvalidateGLStateCache();
+    BindVertexArrayObject();
     InvalidateObjects();
 
     std::string sError = InitShaders();
@@ -2265,6 +2282,7 @@ bool RageDisplay_Legacy::SupportsThreadedRendering() {
 void RageDisplay_Legacy::BeginConcurrentRenderingMainThread() {
   g_pWind->BeginConcurrentRenderingMainThread();
   InvalidateGLStateCache();
+  BindVertexArrayObject();
 }
 
 void RageDisplay_Legacy::EndConcurrentRenderingMainThread() {
@@ -2275,6 +2293,7 @@ void RageDisplay_Legacy::EndConcurrentRenderingMainThread() {
 void RageDisplay_Legacy::BeginConcurrentRendering() {
   g_pWind->BeginConcurrentRendering();
   InvalidateGLStateCache();
+  BindVertexArrayObject();
   RageDisplay::BeginConcurrentRendering();
 }
 
