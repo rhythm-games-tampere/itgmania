@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Reference screenshots and a perf baseline for the rendering work
-(Docs/Devdocs/RenderingModernizationPlan.md, Phase 0).
+"""Reference screenshots and a perf baseline for the rendering work.
 
   rendertest.py run [--out DIR] [--renderer opengl|d3d] [--size WxH] [--no-perf]
                     [--pref KEY=VALUE ...] [--theme DIR]

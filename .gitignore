@@ -107,3 +107,4 @@ BuildLog.htm
 *.pc
 *.d
 *.lastcodeanalysissucceeded
+__pycache__/

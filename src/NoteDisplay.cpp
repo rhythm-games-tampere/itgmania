@@ -683,7 +683,9 @@ void NoteDisplay::Update(float fDeltaTime) {
   /* This function is static: it's called once per game loop, not once per
    * NoteDisplay.  Update each cached item exactly once. Every NoteField calls
    * this, so skip repeat calls within the same frame (this used to run 3x per
-   * frame in 2P, 2x in 1P). */
+   * frame in 2P, 2x in 1P). Visible change: time-clocked effects on noteskin
+   * parts (e.g. a mine's spin without effectclock "beat") now run at their
+   * written speed, half or a third of what they were, the same in 1P and 2P. */
   static uint64_t last_frame = UINT64_MAX;
   const uint64_t frame = GameLoop::GetFrameNumber();
   if (frame == last_frame) {

@@ -557,7 +557,9 @@ RageDisplay* CreateDisplay() {
   for (unsigned i = 0; i < asRenderers.size(); i++) {
     std::string sRenderer = asRenderers[i];
 
-    if (CompareNoCase(sRenderer, "opengl") == 0) {
+    // The GLES2 renderer was removed; OpenGL runs wherever it did.
+    if (CompareNoCase(sRenderer, "opengl") == 0 ||
+        CompareNoCase(sRenderer, "gles2") == 0) {
 #if defined(SUPPORT_OPENGL)
       pRet = new RageDisplay_Legacy;
 #endif
