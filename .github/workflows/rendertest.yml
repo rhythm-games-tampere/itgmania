@@ -81,12 +81,12 @@ jobs:
           7z x -y -omesa mesa.7z "x64/opengl32.dll" "x64/libgallium_wgl.dll"
           cp mesa/x64/opengl32.dll mesa/x64/libgallium_wgl.dll Program/
 
-      - name: Run
+      - name: Run with the platform window
         shell: bash
         run: |
           # Runner desktops are about 1024x768, and perf numbers from software
           # renderers mean nothing.
-          cmd="python Utils/RenderTest/rendertest.py run --out rendertest-out --timeout 1500 --size 960x540 --no-perf"
+          cmd="python Utils/RenderTest/rendertest.py run --out rendertest-out --timeout 1500 --size 960x540 --no-perf --pref WindowDriver=Native"
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a -s "-screen 0 1920x1080x24" $cmd
           else

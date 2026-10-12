@@ -15,8 +15,8 @@ struct SDL_GLContextState;
  * Elsewhere it just calls f. */
 void RunOnMainThread(const std::function<void()>& f);
 
-/** @brief Window, GL context and display modes through SDL 3. Selected with
- * WindowDriver=SDL in Preferences.ini; the platform backend is the default. */
+/** @brief Window, GL context and display modes through SDL 3. The default;
+ * WindowDriver=Native in Preferences.ini selects the platform backend. */
 class LowLevelWindow_SDL : public LowLevelWindow {
  public:
   LowLevelWindow_SDL();

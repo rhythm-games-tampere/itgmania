@@ -1,5 +1,7 @@
 #include "InputHandler.h"
 
+#include <SDL3/SDL.h>
+
 #include "InputFilter.h"
 #include "InputHandler_MonkeyKeyboard.h"
 #include "LocalizedString.h"
@@ -245,14 +247,14 @@ DriverList InputHandler::m_pDriverList;
 
 static LocalizedString INPUT_HANDLERS_EMPTY(
     "Arch", "Input Handlers cannot be empty.");
-// With the SDL window (WindowDriver=SDL), SDL also reads the keyboard, mouse
-// and joysticks, in place of the platform handlers for them. LinuxEvent and
-// LinuxJoystick go too: their joystick numbers would collide with SDL's.
+// With the SDL window up (the default, but not with WindowDriver=Native or the
+// D3D renderer; the display starts before input), SDL also reads the
+// keyboard, mouse and joysticks, in place of the platform handlers for them.
+// LinuxEvent and LinuxJoystick go too: their joystick numbers would collide
+// with SDL's.
 static std::vector<std::string> DefaultInputDrivers() {
   std::vector<std::string> drivers = GetDefaultInputDriverList();
-  IPreference* pWindowDriver = IPreference::GetPreferenceByName("WindowDriver");
-  if (pWindowDriver == nullptr ||
-      CompareNoCase(pWindowDriver->ToString(), "SDL") != 0) {
+  if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
     return drivers;
   }
   std::vector<std::string> out = {"SDL"};

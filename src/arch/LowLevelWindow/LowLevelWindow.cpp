@@ -5,11 +5,12 @@
 #include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "arch/arch_default.h"
 
-static Preference<std::string> g_sWindowDriver(
-    "WindowDriver", "");  // "" == ARCH_LOW_LEVEL_WINDOW, or "SDL"
+// "" or "SDL" for the SDL window, "Native" for ARCH_LOW_LEVEL_WINDOW.
+static Preference<std::string> g_sWindowDriver("WindowDriver", "");
 
 LowLevelWindow* LowLevelWindow::Create() {
-  if (CompareNoCase(g_sWindowDriver.Get(), "SDL") == 0) {
+  const std::string& s = g_sWindowDriver.Get();
+  if (s.empty() || CompareNoCase(s, "SDL") == 0) {
     return new LowLevelWindow_SDL;
   }
   return new ARCH_LOW_LEVEL_WINDOW;

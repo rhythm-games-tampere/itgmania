@@ -12,8 +12,8 @@
 struct SDL_Joystick;
 
 /** @brief Keyboard, mouse and joysticks through SDL 3. Keyboard and mouse need
- * the SDL window (WindowDriver=SDL), which also makes this the default in
- * place of the platform handlers. */
+ * the SDL window (the default WindowDriver), which also makes this the
+ * default in place of the platform handlers. */
 class InputHandler_SDL : public InputHandler {
  public:
   InputHandler_SDL();
