@@ -197,6 +197,28 @@ static void SetupMenus(void) {
   [NSApp setWindowsMenu:windowMenu];
 }
 
+static bool g_bAppEventLoopStopped = false;
+
+/* For LowLevelWindow_SDL, on the main thread: SDL takes the window server's
+ * events itself when the game pumps them, so [NSApp run] must stop taking
+ * them first (it would keep keys from SDL). main() then only runs what the
+ * game thread sends the main queue. */
+void MacOSX_StopAppEventLoop() {
+  g_bAppEventLoopStopped = true;
+  [NSApp stop:nil];
+  // stop: takes effect after the next event.
+  [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                      location:NSZeroPoint
+                                 modifierFlags:0
+                                     timestamp:0
+                                  windowNumber:0
+                                       context:nil
+                                       subtype:0
+                                         data1:0
+                                         data2:0]
+           atStart:YES];
+}
+
 #undef main
 
 int main(int argc, char** argv) {
@@ -220,6 +242,9 @@ int main(int argc, char** argv) {
   [pool release];
   // Start the main event loop.
   [NSApp run];
+  while (g_bAppEventLoopStopped) {
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1e10, false);
+  }
   [sm release];
   return 0;
 }

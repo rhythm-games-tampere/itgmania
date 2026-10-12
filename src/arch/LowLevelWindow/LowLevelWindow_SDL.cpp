@@ -29,6 +29,8 @@
 #elif defined(MACOSX)
 #include <dispatch/dispatch.h>
 #include <pthread.h>
+
+void MacOSX_StopAppEventLoop();  // archutils/Darwin/SMMain.mm
 #endif
 
 // Off asks for a compatibility context, like the platform windows.
@@ -118,6 +120,9 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
 #endif
   std::string sError;
   RunOnMainThread([&] {
+#if defined(MACOSX)
+    MacOSX_StopAppEventLoop();
+#endif
     if (!SDL_Init(SDL_INIT_VIDEO)) {
       sError = SDL_GetError();
     }
