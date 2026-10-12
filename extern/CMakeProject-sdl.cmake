@@ -11,6 +11,9 @@ foreach(subsystem AUDIO GPU RENDER CAMERA HAPTIC HIDAPI POWER SENSOR DIALOG)
   set(SDL_${subsystem} OFF CACHE INTERNAL "")
 endforeach()
 set(SDL_JOYSTICK ON CACHE INTERNAL "")
+# ponytail: only used to suspend the screensaver, which SDL also does without
+# it; keeps libxss-dev off the Linux build dependencies.
+set(SDL_X11_XSCRNSAVER OFF CACHE INTERNAL "")
 
 # StepmaniaCore.cmake adds pthread to every check, even on Windows, where it
 # makes all of SDL's link checks fail (no DirectInput or XInput, for one).
