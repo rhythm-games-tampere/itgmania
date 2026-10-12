@@ -8,6 +8,7 @@
 
 #include "InputFilter.h"
 #include "arch/ArchHooks/ArchHooks.h"
+#include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "RageLog.h"
 #include "RageUtil.h"
 #include "global.h"
@@ -193,7 +194,7 @@ void InputHandler_SDL::Update() {
   // thread that started the joystick subsystem: this one.
   SDL_UpdateJoysticks();
 #endif
-  SDL_PumpEvents();
+  RunOnMainThread([] { SDL_PumpEvents(); });
   SDL_Event e;
   while (SDL_PeepEvents(
              &e, 1, SDL_GETEVENT, SDL_EVENT_KEY_DOWN,

@@ -1,6 +1,7 @@
 #ifndef LOW_LEVEL_WINDOW_SDL_H
 #define LOW_LEVEL_WINDOW_SDL_H
 
+#include <functional>
 #include <string>
 
 #include "RageDisplay.h"
@@ -8,6 +9,11 @@
 
 struct SDL_Window;
 struct SDL_GLContextState;
+
+/** @brief Runs f on the main thread and waits for it. SDL's Cocoa video only
+ * works there, and on macOS the game runs on a thread of its own (SMMain.mm).
+ * Elsewhere it just calls f. */
+void RunOnMainThread(const std::function<void()>& f);
 
 /** @brief Window, GL context and display modes through SDL 3. Selected with
  * WindowDriver=SDL in Preferences.ini; the platform backend is the default. */
@@ -37,6 +43,9 @@ class LowLevelWindow_SDL : public LowLevelWindow {
   void EndConcurrentRendering();
 
  private:
+  std::string SetVideoMode(const VideoModeParams& p, bool& bNewDeviceOut);
+  static void GetDisplaySpecsOnMainThread(DisplaySpecs& out);
+
   SDL_Window* m_pWindow = nullptr;
   SDL_GLContextState* m_Context = nullptr;
   // Shares objects with m_Context; current on the loading thread.

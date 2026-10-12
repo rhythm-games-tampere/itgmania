@@ -25,7 +25,22 @@
 #include <SDL3/SDL_main.h>
 
 #include "archutils/Win32/GraphicsWindow.h"
+#elif defined(MACOSX)
+#include <dispatch/dispatch.h>
+#include <pthread.h>
 #endif
+
+void RunOnMainThread(const std::function<void()>& f) {
+#if defined(MACOSX)
+  if (pthread_main_np() == 0) {
+    dispatch_sync_f(
+        dispatch_get_main_queue(), const_cast<std::function<void()>*>(&f),
+        [](void* p) { (*static_cast<std::function<void()>*>(p))(); });
+    return;
+  }
+#endif
+  f();
+}
 
 // DisplaySpec ids are SDL display ids, which are only stable within a run, so
 // the first display with a matching name is used too (ids from another
@@ -88,8 +103,14 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
   // with glad (Phase B1).
   SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
 #endif
-  if (!SDL_Init(SDL_INIT_VIDEO)) {
-    RageException::Throw("SDL_Init failed: %s", SDL_GetError());
+  std::string sError;
+  RunOnMainThread([&] {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+      sError = SDL_GetError();
+    }
+  });
+  if (!sError.empty()) {
+    RageException::Throw("SDL_Init failed: %s", sError.c_str());
   }
   // Off until InputHandler_SDL takes them.
   for (Uint32 type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
@@ -103,17 +124,21 @@ LowLevelWindow_SDL::~LowLevelWindow_SDL() {
 #if defined(_WIN32)
   GraphicsWindow::AdoptWindow(nullptr);
 #endif
-  if (m_BackgroundContext != nullptr) {
-    SDL_GL_DestroyContext(m_BackgroundContext);
-  }
   if (m_Context != nullptr) {
     SDL_GL_MakeCurrent(m_pWindow, nullptr);
-    SDL_GL_DestroyContext(m_Context);
   }
-  if (m_pWindow != nullptr) {
-    SDL_DestroyWindow(m_pWindow);
-  }
-  SDL_Quit();
+  RunOnMainThread([this] {
+    if (m_BackgroundContext != nullptr) {
+      SDL_GL_DestroyContext(m_BackgroundContext);
+    }
+    if (m_Context != nullptr) {
+      SDL_GL_DestroyContext(m_Context);
+    }
+    if (m_pWindow != nullptr) {
+      SDL_DestroyWindow(m_pWindow);
+    }
+    SDL_Quit();
+  });
 }
 
 void* LowLevelWindow_SDL::GetProcAddress(std::string s) {
@@ -121,6 +146,31 @@ void* LowLevelWindow_SDL::GetProcAddress(std::string s) {
 }
 
 std::string LowLevelWindow_SDL::TryVideoMode(
+    const VideoModeParams& p, bool& bNewDeviceOut) {
+  std::string sError;
+  RunOnMainThread([&] { sError = SetVideoMode(p, bNewDeviceOut); });
+  if (bNewDeviceOut) {
+    // Rendering happens on this thread, which isn't the one the contexts were
+    // made on with macOS.
+    if (!SDL_GL_MakeCurrent(m_pWindow, m_Context)) {
+      return ssprintf("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
+    }
+#if defined(HAVE_X11)
+    // RageDisplay_OGL leaves glewInit to LowLevelWindow_X11 on X11 builds.
+    glewInit();
+#endif
+  }
+  if (!sError.empty()) {
+    return sError;
+  }
+  if (!SDL_GL_SetSwapInterval(p.vsync ? 1 : 0)) {
+    LOG->Warn("SDL_GL_SetSwapInterval failed: %s", SDL_GetError());
+  }
+  return std::string();
+}
+
+// The window side of TryVideoMode, on the main thread.
+std::string LowLevelWindow_SDL::SetVideoMode(
     const VideoModeParams& p, bool& bNewDeviceOut) {
   bNewDeviceOut = false;
 
@@ -152,13 +202,9 @@ std::string LowLevelWindow_SDL::TryVideoMode(
       LOG->Warn(
           "No shared GL context for background loading: %s", SDL_GetError());
     }
-    if (!SDL_GL_MakeCurrent(m_pWindow, m_Context)) {
-      return ssprintf("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
-    }
-#if defined(HAVE_X11)
-    // RageDisplay_OGL leaves glewInit to LowLevelWindow_X11 on X11 builds.
-    glewInit();
-#endif
+    // Creating a context makes it current here; TryVideoMode makes m_Context
+    // current on the rendering thread.
+    SDL_GL_MakeCurrent(m_pWindow, nullptr);
 #if defined(_WIN32)
     GraphicsWindow::AdoptWindow(static_cast<HWND>(SDL_GetPointerProperty(
         SDL_GetWindowProperties(m_pWindow), SDL_PROP_WINDOW_WIN32_HWND_POINTER,
@@ -228,14 +274,14 @@ std::string LowLevelWindow_SDL::TryVideoMode(
   params.renderOffscreen = params.windowWidth != params.width ||
                            params.windowHeight != params.height;
   m_Params = params;
-
-  if (!SDL_GL_SetSwapInterval(p.vsync ? 1 : 0)) {
-    LOG->Warn("SDL_GL_SetSwapInterval failed: %s", SDL_GetError());
-  }
   return std::string();
 }
 
 void LowLevelWindow_SDL::GetDisplaySpecs(DisplaySpecs& out) const {
+  RunOnMainThread([&] { GetDisplaySpecsOnMainThread(out); });
+}
+
+void LowLevelWindow_SDL::GetDisplaySpecsOnMainThread(DisplaySpecs& out) {
   int iCount = 0;
   SDL_DisplayID* pDisplays = SDL_GetDisplays(&iCount);
   for (int i = 0; i < iCount; ++i) {
@@ -298,17 +344,20 @@ bool LowLevelWindow_SDL::IsSoftwareRenderer(std::string& sError) {
 void LowLevelWindow_SDL::SwapBuffers() { SDL_GL_SwapWindow(m_pWindow); }
 
 void LowLevelWindow_SDL::Update() {
-  if (PREFSMAN->m_bShowMouseCursor) {
-    SDL_ShowCursor();
-  } else {
-    SDL_HideCursor();
-  }
+  const bool bShowCursor = PREFSMAN->m_bShowMouseCursor;
+  RunOnMainThread([bShowCursor] {
+    if (bShowCursor) {
+      SDL_ShowCursor();
+    } else {
+      SDL_HideCursor();
+    }
+    SDL_PumpEvents();
+  });
 
   // Quit, display and window events are ours; keyboard through joystick
   // events are InputHandler_SDL's. Drop the rest, and input events too if no
   // InputHandler_SDL turned them on.
   bool bResized = false;
-  SDL_PumpEvents();
   SDL_FlushEvents(SDL_EVENT_GAMEPAD_AXIS_MOTION, SDL_EVENT_LAST);
   if (!SDL_EventEnabled(SDL_EVENT_KEY_DOWN)) {
     SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_GAMEPAD_AXIS_MOTION - 1);
@@ -339,7 +388,7 @@ void LowLevelWindow_SDL::Update() {
   // A resized window renders at its new size (fullscreen sizes are fixed).
   if (bResized && m_Params.windowed && !m_Params.bWindowIsFullscreenBorderless) {
     int w = 0, h = 0;
-    SDL_GetWindowSizeInPixels(m_pWindow, &w, &h);
+    RunOnMainThread([&] { SDL_GetWindowSizeInPixels(m_pWindow, &w, &h); });
     if (w != m_Params.width || h != m_Params.height) {
       m_Params.width = m_Params.windowWidth = w;
       m_Params.height = m_Params.windowHeight = h;
