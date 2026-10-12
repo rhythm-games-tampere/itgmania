@@ -45,6 +45,7 @@ using namespace RageDisplay_Legacy_Helpers;
 #endif
 
 #ifdef NO_GL_FLUSH
+#undef glFlush  // glad's
 #define glFlush()
 #endif
 
