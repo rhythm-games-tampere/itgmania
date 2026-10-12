@@ -17,7 +17,8 @@ perf.json/perf.txt from RenderProfiler and the game log.
 With --theme DIR (e.g. "Themes/Simply Love"), the RenderTest theme is
 replaced by that theme, and ThemeDriver/ScreenSystemLayer aux.lua steps it
 through a few screens (title, music select, options, gameplay, evaluation)
-instead. Written for Simply Love.
+instead, then plays the song again with RenderProfiler on. Written for
+Simply Love.
 
 Time is frame-locked (ConstantUpdateDeltaSeconds + FrameLockedSongTime), so
 two runs of the same build should produce identical images.

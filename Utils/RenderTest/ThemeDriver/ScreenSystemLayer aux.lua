@@ -24,6 +24,15 @@ local function JoinPlayers()
 	end
 end
 
+-- The whole song again with RenderProfiler on, like the RenderTest theme's
+-- perf step. The profiler writes its report when gameplay ends.
+local function StartPerf()
+	JoinPlayers()
+	PREFSMAN:SetPreference("RenderProfiler", 2)
+	-- No screenshots in this run, so no back buffer copy every frame.
+	PREFSMAN:SetPreference("ScreenshotBackBuffer", false)
+end
+
 local steps = {
 	{ go = "ScreenTitleMenu", frames = 120, shot = "title" },
 	{ go = "ScreenSelectMusic", setup = JoinPlayers, frames = 180, shot = "selectmusic" },
@@ -32,6 +41,13 @@ local steps = {
 	-- The theme moves on to evaluation by itself when the song ends.
 	{ screen = "ScreenEvaluationStage", frames = 180, shot = "evaluation" },
 }
+
+-- Options from rendertest.py.
+local config = IniFile.ReadFile("/Save/RenderTest.ini").RenderTest or {}
+if config.SkipPerf ~= 1 then
+	steps[#steps + 1] = { go = "ScreenGameplay", setup = StartPerf, frames = 1 }
+	steps[#steps + 1] = { screen = "ScreenEvaluationStage", frames = 1 }
+end
 
 local index, frames, total = 0, 0, 0
 local step
@@ -57,15 +73,17 @@ return Def.ActorFrame{
 			if not step then return end
 			total = total + 1
 			if total > STEP_TIMEOUT then
-				Trace("RenderTest: screenshot " .. step.shot .. " ok=false (never reached " .. step.screen .. ")")
+				Trace("RenderTest: step " .. index .. " ok=false (never reached " .. step.screen .. ")")
 				return Next()
 			end
 			local top = SCREENMAN:GetTopScreen()
 			if not top or top:GetName() ~= step.screen then return end
 			frames = frames + 1
 			if frames == step.frames then
-				local ok, path = SaveScreenshot(nil, false, false, step.shot .. "__", "")
-				Trace("RenderTest: screenshot " .. step.shot .. " -> " .. tostring(path) .. " ok=" .. tostring(ok))
+				if step.shot then
+					local ok, path = SaveScreenshot(nil, false, false, step.shot .. "__", "")
+					Trace("RenderTest: screenshot " .. step.shot .. " -> " .. tostring(path) .. " ok=" .. tostring(ok))
+				end
 				Next()
 			end
 		end)
