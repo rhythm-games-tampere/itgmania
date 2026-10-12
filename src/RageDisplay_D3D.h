@@ -1,4 +1,9 @@
-/* RageDisplay_D3D - Direct3D renderer. */
+/* RageDisplay_D3D - Direct3D renderer.
+ *
+ * Frozen: Direct3D 9 with the fixed-function pipeline, kept only as the
+ * Windows fallback for when OpenGL fails ("opengl,d3d" in VideoRenderers).
+ * It gets fixes that keep it working, but no new features or rendering work;
+ * those go in RageDisplay_OGL. */
 
 #ifndef RAGE_DISPLAY_D3D_H
 #define RAGE_DISPLAY_D3D_H
