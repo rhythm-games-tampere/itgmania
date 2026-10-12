@@ -36,6 +36,12 @@ void MacOSX_StopAppEventLoop();  // archutils/Darwin/SMMain.mm
 // Off asks for a compatibility context, like the platform windows.
 static Preference<bool> g_bOpenGLCoreProfile("OpenGLCoreProfile", true);
 
+#if defined(__linux__)
+// "x11" or "wayland" (any SDL video driver, or a list to try in order); ""
+// lets SDL pick, which prefers Wayland.
+static Preference<std::string> g_sSDLVideoDriver("SDLVideoDriver", "x11");
+#endif
+
 // Core 3.3; macOS gives 4.1 for any core request, and only forward
 // compatible ones.
 static void SetCoreProfileAttributes(bool bCore) {
@@ -117,6 +123,10 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
   // The window class name ArchHooks_Win32 looks for to hand a second
   // instance's command line to this one.
   SDL_RegisterApp(PRODUCT_ID, 0, nullptr);
+#elif defined(__linux__)
+  if (!g_sSDLVideoDriver.Get().empty()) {
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, g_sSDLVideoDriver.Get().c_str());
+  }
 #endif
   std::string sError;
   RunOnMainThread([&] {
