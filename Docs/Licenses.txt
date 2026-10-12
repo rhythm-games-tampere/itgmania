@@ -134,7 +134,8 @@ No guarantee this list is accurate, please check the licenses of the individual
 projects.
 
 * ffmpeg: LGPL with some parts GPLv2
-* glad: generated GL loader, public domain / CC0 (khrplatform.h: Apache 2.0)
+* glad: generated GL loader, (WTFPL or CC0) and Apache 2.0 (from the Khronos
+  API registry); khrplatform.h: MIT-style Khronos license
 * IXWebSocket: BSD
 * jsoncpp: public domain or MIT depending on the jurisdiction
 * libjpeg: some permissive license
@@ -147,6 +148,7 @@ projects.
 * miniz: MIT
 * ogg: BSD
 * pcre: BSD
+* SDL 3: zlib
 * vorbis: BSD
 * zlib: under the zlib license
 
