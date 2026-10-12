@@ -5,6 +5,7 @@
 #include "global.h"
 
 #import <Cocoa/Cocoa.h>
+#include <unistd.h>
 #include "ProductInfo.h"
 #include "RageInput.h"
 #include "StepMania.h"
@@ -243,7 +244,10 @@ int main(int argc, char** argv) {
   // Start the main event loop.
   [NSApp run];
   while (g_bAppEventLoopStopped) {
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1e10, false);
+    // Returns at once if the mode has nothing to wait on; don't spin then.
+    if (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1e10, false) == kCFRunLoopRunFinished) {
+      usleep(1000);
+    }
   }
   [sm release];
   return 0;

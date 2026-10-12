@@ -31,6 +31,9 @@ class LowLevelWindow {
 
   virtual void SwapBuffers() = 0;
   virtual void Update() {}
+  // True once after Update saw the window change size; the renderer then
+  // picks up the new size at the start of its next frame.
+  virtual bool TakeResized() { return false; }
 
   virtual const ActualVideoModeParams GetActualVideoModeParams() const = 0;
 

@@ -209,9 +209,13 @@ InputHandler_SDL::~InputHandler_SDL() {
 int InputHandler_SDL::JoystickThread_Start(void* p) {
   InputHandler_SDL* self = static_cast<InputHandler_SDL*>(p);
   SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH);
+  // Without open joysticks this only notices new ones, which can wait. The
+  // set never changes: hotplugging recreates the handler.
+  const Uint64 iDelay =
+      self->m_Joysticks.empty() ? 16 * SDL_NS_PER_MS : SDL_NS_PER_MS;
   while (!self->m_bShutdown) {
     SDL_UpdateJoysticks();
-    SDL_DelayNS(SDL_NS_PER_MS);
+    SDL_DelayNS(iDelay);
   }
   return 0;
 }
@@ -241,7 +245,7 @@ void InputHandler_SDL::Update() {
   // thread that started the joystick subsystem: this one.
   SDL_UpdateJoysticks();
 #endif
-  RunOnMainThread([] { SDL_PumpEvents(); });
+  PumpSDLEvents();
   SDL_Event e;
   while (SDL_PeepEvents(
              &e, 1, SDL_GETEVENT, SDL_EVENT_KEY_DOWN,

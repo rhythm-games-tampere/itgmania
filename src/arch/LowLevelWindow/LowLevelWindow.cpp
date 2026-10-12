@@ -1,6 +1,7 @@
 #include "LowLevelWindow.h"
 
 #include "Preference.h"
+#include "RageLog.h"
 #include "RageUtil.h"
 #include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "arch/arch_default.h"
@@ -11,7 +12,15 @@ static Preference<std::string> g_sWindowDriver("WindowDriver", "");
 LowLevelWindow* LowLevelWindow::Create() {
   const std::string& s = g_sWindowDriver.Get();
   if (s.empty() || CompareNoCase(s, "SDL") == 0) {
-    return new LowLevelWindow_SDL;
+    LowLevelWindow_SDL* pSDL = new LowLevelWindow_SDL;
+    if (pSDL->GetInitError().empty()) {
+      return pSDL;
+    }
+    // E.g. no X server and no Wayland compositor SDL can use.
+    LOG->Warn(
+        "SDL video failed (%s); using the platform window.",
+        pSDL->GetInitError().c_str());
+    delete pSDL;
   }
   return new ARCH_LOW_LEVEL_WINDOW;
 }

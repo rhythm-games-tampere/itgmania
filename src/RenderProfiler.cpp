@@ -30,6 +30,7 @@ namespace RenderProfiler {
 bool g_active = false;
 bool g_actor_scopes = false;
 int64_t g_gl[kNumGLStats];
+uint32_t g_session = 0;
 
 namespace {
 
@@ -431,6 +432,7 @@ void Start() {
   if (g_iMode.Get() <= 0) {
     return;
   }
+  ++g_session;
   g_actor_scopes = g_iMode.Get() == 1;
   std::fill(std::begin(g_gl), std::end(g_gl), 0);
   g_nodes.clear();

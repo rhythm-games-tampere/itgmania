@@ -15,12 +15,20 @@ struct SDL_GLContextState;
  * Elsewhere it just calls f. */
 void RunOnMainThread(const std::function<void()>& f);
 
+/** @brief SDL_PumpEvents on the main thread. Every frame's first pump goes
+ * through here, so LowLevelWindow_SDL::Update can skip a second one. */
+void PumpSDLEvents();
+
 /** @brief Window, GL context and display modes through SDL 3. The default;
  * WindowDriver=Native in Preferences.ini selects the platform backend. */
 class LowLevelWindow_SDL : public LowLevelWindow {
  public:
   LowLevelWindow_SDL();
   ~LowLevelWindow_SDL();
+
+  // Why SDL_Init failed, or empty; LowLevelWindow::Create then falls back to
+  // the platform window.
+  const std::string& GetInitError() const { return m_sInitError; }
 
   void* GetProcAddress(std::string s);
   std::string TryVideoMode(const VideoModeParams& p, bool& bNewDeviceOut);
@@ -31,6 +39,11 @@ class LowLevelWindow_SDL : public LowLevelWindow {
 
   void SwapBuffers();
   void Update();
+  bool TakeResized() {
+    const bool b = m_bResized;
+    m_bResized = false;
+    return b;
+  }
 
   const ActualVideoModeParams GetActualVideoModeParams() const {
     return m_Params;
@@ -52,6 +65,9 @@ class LowLevelWindow_SDL : public LowLevelWindow {
   // m_Context was made by a TryVideoMode that failed; the next one that
   // succeeds reports it as a new device.
   bool m_bNewContextPending = false;
+  bool m_bResized = false;
+  int m_iCursorShown = -1;  // -1 unknown
+  std::string m_sInitError;
   ActualVideoModeParams m_Params;
 };
 

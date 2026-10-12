@@ -44,6 +44,8 @@ enum GLStat {
 extern bool g_active;
 extern bool g_actor_scopes;
 extern int64_t g_gl[kNumGLStats];
+// Bumped by Start: scopes opened in an earlier session don't pop this one's.
+extern uint32_t g_session;
 
 inline void CountGL(GLStat s, int n = 1) {
   if (g_active) {
@@ -63,12 +65,13 @@ const char* Intern(const std::string& s);
 
 struct Scope {
   bool pushed;
+  uint32_t session = g_session;
   Scope(const void* key, Kind kind, FrameSlot slot = kSlotNone)
       : pushed(
             g_active && key != nullptr && (kind == kNamed || g_actor_scopes) &&
             Push(key, kind, slot)) {}
   ~Scope() {
-    if (pushed) {
+    if (pushed && session == g_session) {
       Pop();
     }
   }
@@ -89,14 +92,16 @@ struct CommandScope {
 //   Sections s; s.Next("a"); ...; s.Next("b"); ...  (closed on scope exit)
 struct Sections {
   bool pushed = false;
+  uint32_t session = 0;
   void Next(const char* label) {
-    if (pushed) {
+    if (pushed && session == g_session) {
       Pop();
     }
+    session = g_session;
     pushed = g_active && Push(label, kNamed);
   }
   ~Sections() {
-    if (pushed) {
+    if (pushed && session == g_session) {
       Pop();
     }
   }

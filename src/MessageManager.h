@@ -183,6 +183,7 @@ class MessageSubscriber : public IMessageSubscriber {
       const std::string& sMessageName);  // will automatically unsubscribe
 
   void UnsubscribeAll();
+  bool IsSubscribedToAny() const { return !m_vsSubscribedTo.empty(); }
 
  private:
   std::vector<std::string> m_vsSubscribedTo;

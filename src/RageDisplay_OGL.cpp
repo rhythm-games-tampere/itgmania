@@ -34,8 +34,10 @@
 #include "RageUtil.h"
 #include "RageUtil/Endian.h"
 #include "RenderProfiler.h"
+#include "ScreenManager.h"
 #include "Sprite.h"
 #include "arch/LowLevelWindow/LowLevelWindow.h"
+#include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
 #include "global.h"
 
 using namespace RageDisplay_Legacy_Helpers;
@@ -243,7 +245,7 @@ static void FixLittleEndian() {
  * reaches GL. thread_local because concurrent rendering draws from a second
  * context on another thread. g_cache is invalidated on frame start, render
  * target and resolution changes; g_tex_params, which describes the texture
- * objects, only on new contexts and concurrent rendering hand-offs. */
+ * objects, only on new contexts and filtering preference changes. */
 namespace {
 using RenderProfiler::CountGL;
 
@@ -256,6 +258,9 @@ struct GLStateCache {
   int64_t program;                       // -1 unknown
   int attrib[8];                         // vertex attribute arrays enabled
   int64_t array_buffer, element_buffer;  // -1 unknown
+  // Buffer the sprite vertex attributes point at, from offset 0 (draws pick
+  // their vertices with a base vertex); -1 unknown or pointed elsewhere.
+  int64_t sprite_arrays;
 
   void Invalidate() {
     active_unit = -1;
@@ -266,7 +271,7 @@ struct GLStateCache {
     zbias_valid = false;
     program = -1;
     std::fill(std::begin(attrib), std::end(attrib), -1);
-    array_buffer = element_buffer = -1;
+    array_buffer = element_buffer = sprite_arrays = -1;
   }
 };
 
@@ -282,12 +287,17 @@ thread_local GLStateCache g_cache = [] {
   c.Invalidate();
   return c;
 }();
-thread_local std::unordered_map<GLuint, TexParams> g_tex_params;
+// Shared like the texture objects it describes. While a second thread renders
+// (concurrent rendering) both threads touch textures, so it's off and
+// cleared afterwards; TexParamsFor returns null then.
+std::unordered_map<GLuint, TexParams> g_tex_params;
+std::atomic<bool> g_bTexParamsOff{false};
 
-void InvalidateGLStateCache() {
-  g_cache.Invalidate();
-  g_tex_params.clear();
+TexParams* TexParamsFor(GLuint id) {
+  return g_bTexParamsOff ? nullptr : &g_tex_params[id];
 }
+
+void InvalidateGLStateCache() { g_cache.Invalidate(); }
 
 // Core profiles draw nothing without a vertex array object, and they aren't
 // shared between contexts: each context gets one and keeps it bound. Needs a
@@ -415,17 +425,22 @@ void CheckStreamGeneration() {
   }
 }
 
+static GLsizeiptr AlignUp(GLsizeiptr at, GLsizeiptr align) {
+  return (at + align - 1) / align * align;
+}
+
 /* Copies data into a stream buffer, leaves that bound to GL_ARRAY_BUFFER and
- * returns the data's offset in it. */
-GLintptr StreamUpload(const void* data, GLsizeiptr size) {
+ * returns the data's offset in it, a multiple of align (the vertex stride, so
+ * draws can address it with a base vertex). */
+GLintptr StreamUpload(const void* data, GLsizeiptr size, GLsizeiptr align) {
   constexpr GLsizeiptr kQuarter = kStreamRingSize / 4;
   CheckStreamGeneration();
   CountGL(RenderProfiler::kGLVertexSetup);
-  if (!g_stream.mapped || size > kQuarter) {
+  if (!g_stream.mapped || size > kQuarter - align) {
     CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.dynamic);
     // glMapBufferRange is GL 3.0; macOS's 2.1 context respecifies instead.
     if (GLAD_GL_VERSION_3_0 && size <= kStreamRingSize) {
-      GLintptr at = g_stream.dynamic_offset;
+      GLintptr at = AlignUp(g_stream.dynamic_offset, align);
       if (at + size > kStreamRingSize) {
         // New storage; the GPU keeps reading the old until it's done.
         glBufferData(GL_ARRAY_BUFFER, kStreamRingSize, nullptr, GL_STREAM_DRAW);
@@ -448,11 +463,11 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size) {
   }
 
   // Keep each draw inside one quarter.
-  GLsizeiptr at = g_stream.offset;
+  GLsizeiptr at = AlignUp(g_stream.offset, align);
   if (at + size > kStreamRingSize) {
     at = 0;
   } else if (at / kQuarter != (at + size - 1) / kQuarter) {
-    at = (at / kQuarter + 1) * kQuarter;
+    at = AlignUp((at / kQuarter + 1) * kQuarter, align);
   }
   const int quarter = static_cast<int>(at / kQuarter);
   if (quarter != g_stream.quarter) {
@@ -463,7 +478,11 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size) {
     g_stream.quarter = quarter;
     if (GLsync& fence = g_stream.fences[quarter]) {
       CountGL(RenderProfiler::kGLGet);
-      glClientWaitSync(fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);
+      // Wait however long it takes: writing early would change vertices the
+      // GPU hasn't drawn yet. Only a lost context fails.
+      while (glClientWaitSync(fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000) ==
+             GL_TIMEOUT_EXPIRED) {
+      }
       glDeleteSync(fence);
       fence = nullptr;
     }
@@ -1095,6 +1114,7 @@ std::string RageDisplay_Legacy::TryVideoMode(
     ++g_iContextGeneration;
     // The cache describes the old context; InitShaders binds programs.
     InvalidateGLStateCache();
+    g_tex_params.clear();
     BindVertexArrayObject();
     InvalidateObjects();
 
@@ -1104,20 +1124,32 @@ std::string RageDisplay_Legacy::TryVideoMode(
     }
   }
 
+  // SetTextureFiltering picks the min filter from the trilinear setting, so
+  // filters it already set are stale when that changes.
+  static int s_iTrilinear = -1;
+  if (s_iTrilinear != static_cast<int>(p.bTrilinearFiltering)) {
+    s_iTrilinear = p.bTrilinearFiltering;
+    for (auto& tex : g_tex_params) {
+      tex.second.filter = -1;
+    }
+  }
+
 // I'm not sure this is correct -Colby
 #if defined(WINDOWS)
   /* Set vsync the Windows way, if we can.  (What other extensions are there
-   * to do this, for other archs?) */
-  // Drivers only hand out wglSwapIntervalEXT with WGL_EXT_swap_control.
-  using SwapIntervalFunc = BOOL(WINAPI*)(int);
-  const auto wglSwapIntervalEXT = reinterpret_cast<SwapIntervalFunc>(
-      g_pWind->GetProcAddress("wglSwapIntervalEXT"));
-  if (wglSwapIntervalEXT != nullptr) {
-    wglSwapIntervalEXT(p.vsync);
-  } else {
-    return std::string(
-        "The WGL_EXT_swap_control extension is not supported on your "
-        "computer.");
+   * to do this, for other archs?) The SDL window sets it itself. */
+  if (dynamic_cast<LowLevelWindow_SDL*>(g_pWind) == nullptr) {
+    // Drivers only hand out wglSwapIntervalEXT with WGL_EXT_swap_control.
+    using SwapIntervalFunc = BOOL(WINAPI*)(int);
+    const auto wglSwapIntervalEXT = reinterpret_cast<SwapIntervalFunc>(
+        g_pWind->GetProcAddress("wglSwapIntervalEXT"));
+    if (wglSwapIntervalEXT != nullptr) {
+      wglSwapIntervalEXT(p.vsync);
+    } else {
+      return std::string(
+          "The WGL_EXT_swap_control extension is not supported on your "
+          "computer.");
+    }
   }
 #endif
 
@@ -1174,11 +1206,27 @@ static RageSurface* ReadWindowPixels(
   return image;
 }
 
+// Between BeginFrame and EndFrame.
+static bool g_bInFrame = false;
+// CreateScreenshot is drawing a frame to read back: EndFrame reads the back
+// buffer into g_pCapturedFrame instead of presenting it.
+static bool g_bCaptureFrame = false;
+static RageSurface* g_pCapturedFrame = nullptr;
+
 bool RageDisplay_Legacy::BeginFrame() {
   // Anything outside RageDisplay may have touched GL. Texture params live on
   // the texture objects and are only changed through this file, so they are
   // kept (create/delete and context hand-offs reset them).
   g_cache.Invalidate();
+  // A resized window (seen in the last EndFrame's Update): like
+  // ResolutionChanged, without drawing a frame to clear it.
+  if (g_pWind->TakeResized()) {
+    RageDisplay::ResolutionChanged();
+    if (offscreenRenderTarget && TEXTUREMAN) {
+      TEXTUREMAN->UnloadTexture(offscreenRenderTarget);
+      offscreenRenderTarget = nullptr;
+    }
+  }
   /* We do this in here, rather than ResolutionChanged, or we won't update the
    * viewport for the concurrent rendering context. */
   int fWidth = g_pWind->GetActualVideoModeParams().windowWidth;
@@ -1195,6 +1243,7 @@ bool RageDisplay_Legacy::BeginFrame() {
     offscreenRenderTarget->BeginRenderingTo(false);
   }
 
+  g_bInFrame = beginFrame;
   return beginFrame;
 }
 
@@ -1215,6 +1264,16 @@ void RageDisplay_Legacy::EndFrame() {
         static_cast<float>(GetActualVideoModeParams().height) / 2.f);
     fullscreenSprite.Draw();
     CameraPopMatrix();
+  }
+  g_bInFrame = false;
+
+  if (g_bCaptureFrame) {
+    // Not presented: the next frame draws over it.
+    delete g_pCapturedFrame;
+    g_pCapturedFrame = ReadWindowPixels(
+        GL_BACK, nullptr, GetActualVideoModeParams().width,
+        GetActualVideoModeParams().height);
+    return;
   }
 
   if (g_bScreenshotBackBuffer && !UseOffscreenRenderTarget()) {
@@ -1261,9 +1320,22 @@ RageSurface* RageDisplay_Legacy::CreateScreenshot() {
     g_pLastFrame = nullptr;
     RageSurfaceUtils::FlipVertically(image);
   } else {
-    // TODO: revisit for MacOS, where backbuffer size can be less than window
-    // size
-    image = ReadWindowPixels(GL_FRONT, nullptr, width, height);
+    // Front buffers can't be read back reliably (not at all on EGL, as with
+    // SDL on Wayland, and not under compositors), so draw the current frame
+    // again and read the back buffer before it would be presented. Inside a
+    // frame (a screenshot asked for while drawing), read the front buffer.
+    if (!g_bInFrame && SCREENMAN != nullptr) {
+      g_bCaptureFrame = true;
+      SCREENMAN->Draw();
+      g_bCaptureFrame = false;
+      image = g_pCapturedFrame;  // null if Draw drew nothing
+      g_pCapturedFrame = nullptr;
+    }
+    if (image == nullptr) {
+      // TODO: revisit for MacOS, where backbuffer size can be less than
+      // window size
+      image = ReadWindowPixels(GL_FRONT, nullptr, width, height);
+    }
     RageSurfaceUtils::FlipVertically(image);
   }
 
@@ -1318,8 +1390,11 @@ static void SetVertexArrays(
   glVertexAttribPointer(kAttribNormal, 3, GL_FLOAT, GL_FALSE, stride, normal);
 }
 
-// Uploads v to the stream VBO and points the arrays at it.
-static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
+// Uploads v to the stream VBO and points the arrays at it. Returns the base
+// vertex for the draw: the arrays point at the buffer's start where draws can
+// take a base vertex (GL 3.2), and are only re-pointed when the buffer
+// changes; otherwise they point at the data and this returns 0.
+static GLint SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   // Core since 3.2, where drivers needn't list the extensions.
   static const bool bBGRA = GLAD_GL_VERSION_3_2 ||
                             GLAD_GL_ARB_vertex_array_bgra ||
@@ -1335,15 +1410,27 @@ static void SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   }
 
   const GLsizei stride = sizeof(RageSpriteVertex);
+  const GLintptr at = StreamUpload(v, GLsizeiptr(iNumVerts) * stride, stride);
+  GLint iBaseVertex = static_cast<GLint>(at / stride);
+  GLintptr pointAt = 0;
+  if (!GLAD_GL_VERSION_3_2) {
+    iBaseVertex = 0;
+    pointAt = at;
+    g_cache.sprite_arrays = -1;
+  } else if (g_cache.sprite_arrays == g_cache.array_buffer) {
+    return iBaseVertex;
+  } else {
+    g_cache.sprite_arrays = g_cache.array_buffer;
+  }
   // In a bound buffer, the array "pointers" are byte offsets into it.
-  const char* base = reinterpret_cast<const char*>(
-      StreamUpload(v, GLsizeiptr(iNumVerts) * stride));
+  const char* base = reinterpret_cast<const char*>(pointAt);
   // GL_BGRA as the size reads RageVColor's b, g, r, a order.
   SetVertexArrays(
       base + offsetof(RageSpriteVertex, p),
       base + offsetof(RageSpriteVertex, c), bBGRA ? GL_BGRA : 4,
       base + offsetof(RageSpriteVertex, t),
       base + offsetof(RageSpriteVertex, n), stride);
+  return iBaseVertex;
 }
 
 /* Binds the program for the next draw: the one asked for by SetEffectMode or
@@ -1728,6 +1815,7 @@ void RageCompiledGeometryHWOGL::Draw(int iMeshIndex) const {
   }
 
   CountGL(RenderProfiler::kGLVertexSetup, 2);
+  g_cache.sprite_arrays = -1;  // re-pointed below
   CacheAttribArray(kAttribPosition, true);
   CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, m_nPositions);
   glVertexAttribPointer(kAttribPosition, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
@@ -1791,11 +1879,21 @@ void RageDisplay_Legacy::DeleteCompiledGeometry(RageCompiledGeometry* p) {
   delete p;
 }
 
+// Draws the bound pattern indices from vertex iBaseVertex of the arrays.
+static void DrawPatternElements(int iNumIndices, GLint iBaseVertex) {
+  if (iBaseVertex == 0) {
+    glDrawElements(GL_TRIANGLES, iNumIndices, GL_UNSIGNED_INT, nullptr);
+  } else {
+    glDrawElementsBaseVertex(
+        GL_TRIANGLES, iNumIndices, GL_UNSIGNED_INT, nullptr, iBaseVertex);
+  }
+}
+
 void RageDisplay_Legacy::DrawQuadsInternal(
     const RageSpriteVertex v[], int iNumVerts) {
   SendCurrentMatrices();
 
-  SetupVertices(v, iNumVerts);
+  const GLint iBaseVertex = SetupVertices(v, iNumVerts);
   // Two triangles per quad, split along 0-2 like the D3D renderer.
   const int iNumQuads = iNumVerts / 4;
   BindPatternIndices<6>(g_stream.quads, iNumQuads, [](GLuint i, GLuint* o) {
@@ -1803,14 +1901,14 @@ void RageDisplay_Legacy::DrawQuadsInternal(
     o[0] = b + 0, o[1] = b + 1, o[2] = b + 2;
     o[3] = b + 2, o[4] = b + 3, o[5] = b + 0;
   });
-  glDrawElements(GL_TRIANGLES, iNumQuads * 6, GL_UNSIGNED_INT, nullptr);
+  DrawPatternElements(iNumQuads * 6, iBaseVertex);
 }
 
 void RageDisplay_Legacy::DrawQuadStripInternal(
     const RageSpriteVertex v[], int iNumVerts) {
   SendCurrentMatrices();
 
-  SetupVertices(v, iNumVerts);
+  const GLint iBaseVertex = SetupVertices(v, iNumVerts);
   // Quad i is the polygon (2i, 2i+1, 2i+3, 2i+2), split along its first
   // vertex like GL_QUADS. A plain triangle strip would split along 1-2 (as
   // the D3D renderer does), which interpolates colors differently.
@@ -1821,7 +1919,7 @@ void RageDisplay_Legacy::DrawQuadStripInternal(
         o[0] = b + 0, o[1] = b + 1, o[2] = b + 3;
         o[3] = b + 0, o[4] = b + 3, o[5] = b + 2;
       });
-  glDrawElements(GL_TRIANGLES, iNumQuads * 6, GL_UNSIGNED_INT, nullptr);
+  DrawPatternElements(iNumQuads * 6, iBaseVertex);
 }
 
 void RageDisplay_Legacy::DrawSymmetricQuadStripInternal(
@@ -1832,7 +1930,7 @@ void RageDisplay_Legacy::DrawSymmetricQuadStripInternal(
 
   SendCurrentMatrices();
 
-  SetupVertices(v, iNumVerts);
+  const GLint iBaseVertex = SetupVertices(v, iNumVerts);
   BindPatternIndices<12>(
       g_stream.symmetric_strip, iNumPieces, [](GLuint i, GLuint* o) {
         // { 1, 3, 0 } { 1, 4, 3 } { 1, 5, 4 } { 1, 2, 5 }
@@ -1842,31 +1940,31 @@ void RageDisplay_Legacy::DrawSymmetricQuadStripInternal(
         o[6] = b + 1, o[7] = b + 5, o[8] = b + 4;
         o[9] = b + 1, o[10] = b + 2, o[11] = b + 5;
       });
-  glDrawElements(GL_TRIANGLES, iNumIndices, GL_UNSIGNED_INT, nullptr);
+  DrawPatternElements(iNumIndices, iBaseVertex);
 }
 
 void RageDisplay_Legacy::DrawFanInternal(
     const RageSpriteVertex v[], int iNumVerts) {
   SendCurrentMatrices();
 
-  SetupVertices(v, iNumVerts);
-  glDrawArrays(GL_TRIANGLE_FAN, 0, iNumVerts);
+  const GLint iBaseVertex = SetupVertices(v, iNumVerts);
+  glDrawArrays(GL_TRIANGLE_FAN, iBaseVertex, iNumVerts);
 }
 
 void RageDisplay_Legacy::DrawStripInternal(
     const RageSpriteVertex v[], int iNumVerts) {
   SendCurrentMatrices();
 
-  SetupVertices(v, iNumVerts);
-  glDrawArrays(GL_TRIANGLE_STRIP, 0, iNumVerts);
+  const GLint iBaseVertex = SetupVertices(v, iNumVerts);
+  glDrawArrays(GL_TRIANGLE_STRIP, iBaseVertex, iNumVerts);
 }
 
 void RageDisplay_Legacy::DrawTrianglesInternal(
     const RageSpriteVertex v[], int iNumVerts) {
   SendCurrentMatrices();
 
-  SetupVertices(v, iNumVerts);
-  glDrawArrays(GL_TRIANGLES, 0, iNumVerts);
+  const GLint iBaseVertex = SetupVertices(v, iNumVerts);
+  glDrawArrays(GL_TRIANGLES, iBaseVertex, iNumVerts);
 }
 
 void RageDisplay_Legacy::DrawCompiledGeometryInternal(
@@ -1886,13 +1984,15 @@ static bool SetTextureUnit(TextureUnit tu) {
 }
 
 void RageDisplay_Legacy::ClearAllTextures() {
-  FOREACH_ENUM(TextureUnit, i)
-  SetTexture(i, 0);
+  // SetTexture(tu, 0) only clears the flag the shaders read; skip its unit
+  // switch per unit, as this runs before every sprite and text draw.
+  FixedFunctionState& ff = FF();
+  std::fill(std::begin(ff.tex_enabled), std::end(ff.tex_enabled), false);
 
   // HACK:  Reset the active texture to 0.
   // TODO:  Change all texture functions to take a stage number.
   CacheActiveUnit(0);
-  FF().active_unit = 0;
+  ff.active_unit = 0;
 }
 
 int RageDisplay_Legacy::GetNumTextureUnits() {
@@ -1927,8 +2027,8 @@ void RageDisplay_Legacy::SetTextureFiltering(TextureUnit tu, bool b) {
   TexParams* params = nullptr;
   const int unit = g_cache.active_unit;
   if (unit >= 0 && g_cache.bound_tex[unit] >= 0) {
-    params = &g_tex_params[static_cast<GLuint>(g_cache.bound_tex[unit])];
-    if (params->filter == static_cast<int>(b)) {
+    params = TexParamsFor(static_cast<GLuint>(g_cache.bound_tex[unit]));
+    if (params != nullptr && params->filter == static_cast<int>(b)) {
       return;
     }
   }
@@ -2211,11 +2311,13 @@ void RageDisplay_Legacy::SetTextureWrapping(TextureUnit tu, bool b) {
   TexParams* params = nullptr;
   const int unit = g_cache.active_unit;
   if (unit >= 0 && g_cache.bound_tex[unit] >= 0) {
-    params = &g_tex_params[static_cast<GLuint>(g_cache.bound_tex[unit])];
-    if (params->wrap == static_cast<int>(b)) {
-      return;
+    params = TexParamsFor(static_cast<GLuint>(g_cache.bound_tex[unit]));
+    if (params != nullptr) {
+      if (params->wrap == static_cast<int>(b)) {
+        return;
+      }
+      params->wrap = b;
     }
-    params->wrap = b;
   }
   RenderProfiler::CountGL(RenderProfiler::kGLTexture, 2);
 
@@ -2313,6 +2415,7 @@ bool RageDisplay_Legacy::SupportsThreadedRendering() {
 }
 
 void RageDisplay_Legacy::BeginConcurrentRenderingMainThread() {
+  g_bTexParamsOff = true;  // before the render thread starts drawing
   g_pWind->BeginConcurrentRenderingMainThread();
   InvalidateGLStateCache();
   BindVertexArrayObject();
@@ -2321,6 +2424,9 @@ void RageDisplay_Legacy::BeginConcurrentRenderingMainThread() {
 void RageDisplay_Legacy::EndConcurrentRenderingMainThread() {
   g_pWind->EndConcurrentRenderingMainThread();
   InvalidateGLStateCache();
+  // The render thread is done; what it and this thread set wasn't recorded.
+  g_tex_params.clear();
+  g_bTexParamsOff = false;
 }
 
 void RageDisplay_Legacy::BeginConcurrentRendering() {
@@ -2347,7 +2453,9 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
       b = 0;
     }
   }
-  g_tex_params.erase(id);
+  if (!g_bTexParamsOff) {
+    g_tex_params.erase(id);
+  }
 
   if (g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end()) {
     delete g_mapRenderTargets[iTexture];
@@ -2417,9 +2525,10 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   ASSERT(iTexHandle != 0);
   // Ids get reused. No mip levels yet, which spares SetTextureFiltering a
   // glGet below.
-  TexParams& params = g_tex_params[static_cast<GLuint>(iTexHandle)];
-  params = TexParams();
-  params.mipmapped = 0;
+  if (TexParams* params = TexParamsFor(static_cast<GLuint>(iTexHandle))) {
+    *params = TexParams();
+    params->mipmapped = 0;
+  }
 
   CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
@@ -2468,9 +2577,10 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   // Filtering was set before the mip levels were uploaded, so set it again
   // on the next draw. Mipmapped the way SetTextureFiltering's glGet would
   // find it: a level 1 exists only above 1 texel wide.
-  TexParams& uploaded = g_tex_params[static_cast<GLuint>(iTexHandle)];
-  uploaded.filter = -1;
-  uploaded.mipmapped = bGenerateMipMaps && power_of_two(pImg->w) > 1;
+  if (TexParams* uploaded = TexParamsFor(static_cast<GLuint>(iTexHandle))) {
+    uploaded->filter = -1;
+    uploaded->mipmapped = bGenerateMipMaps && power_of_two(pImg->w) > 1;
+  }
 
   if (bFreeImg) {
     delete pImg;
@@ -2492,8 +2602,12 @@ struct RageTextureLock_OGL : public RageTextureLock, public InvalidateObject {
     glDeleteBuffers(1, &m_iBuffer);
   }
 
-  /* This is called when our OpenGL context is invalidated. */
-  void Invalidate() { m_iTexHandle = 0; }
+  /* This is called when our OpenGL context is invalidated. The buffer went
+   * with it; Lock makes a new one. */
+  void Invalidate() {
+    m_iTexHandle = 0;
+    m_iBuffer = 0;
+  }
 
   void Lock(uintptr_t iTexHandle, RageSurface* pSurface) {
     ASSERT(m_iTexHandle == 0);
@@ -2649,9 +2763,10 @@ void RenderTarget_FramebufferObject::Create(
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   // Set raw above; no mip levels.
-  TexParams& params = g_tex_params[static_cast<GLuint>(m_iTexHandle)];
-  params = TexParams();
-  params.mipmapped = 0;
+  if (TexParams* params = TexParamsFor(static_cast<GLuint>(m_iTexHandle))) {
+    *params = TexParams();
+    params->mipmapped = 0;
+  }
 
   /* Create the framebuffer object. */
   glGenFramebuffers(1, reinterpret_cast<GLuint*>(&m_iFrameBufferHandle));

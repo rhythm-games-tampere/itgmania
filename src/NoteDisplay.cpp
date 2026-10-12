@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "Actor.h"
+#include "ActorFrame.h"
 #include "ArrowEffects.h"
 #include "CubicSpline.h"
 #include "EnumHelper.h"
@@ -205,7 +206,25 @@ struct NoteResource {
   // time accumulates here and is applied when they're next fetched to draw.
   uint64_t m_iLastUsedFrame = 0;
   float m_fPendingDelta = 0;
+  // -1 not checked yet; 0 if the actor or a child listens for messages.
+  // Those are updated every frame: a message can start a tween, and time
+  // saved up from before it arrived mustn't advance that tween.
+  int m_iDeferrable = -1;
 };
+
+static bool ListensForMessages(Actor* pActor) {
+  if (pActor->IsSubscribedToAny()) {
+    return true;
+  }
+  if (ActorFrame* pFrame = dynamic_cast<ActorFrame*>(pActor)) {
+    for (Actor* pChild : pFrame->GetChildren()) {
+      if (ListensForMessages(pChild)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Brings a resource's actor up to date before it is drawn.
 static Actor* UseNoteResource(NoteResource* pRes) {
@@ -701,7 +720,11 @@ void NoteDisplay::Update(float fDeltaTime) {
   for (auto& color_map : g_NoteResource) {
     for (auto& it : color_map.second) {
       NoteResource* pRes = it.second;
-      if (pRes->m_iLastUsedFrame + 1 >= frame) {
+      if (pRes->m_iDeferrable < 0) {
+        // Checked on the first update, after the actor's commands loaded.
+        pRes->m_iDeferrable = !ListensForMessages(pRes->m_pActor);
+      }
+      if (pRes->m_iLastUsedFrame + 1 >= frame || !pRes->m_iDeferrable) {
         pRes->m_pActor->Update(pRes->m_fPendingDelta + fDeltaTime);
         pRes->m_fPendingDelta = 0;
       } else {

@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <cmath>
 #include <set>
 #include <string>
@@ -68,6 +69,52 @@ void RunOnMainThread(const std::function<void()>& f) {
   f();
 }
 
+// Set by PumpSDLEvents; LowLevelWindow_SDL::Update skips its own pump when
+// InputHandler_SDL already pumped this frame.
+static std::atomic<bool> g_bPumpedSinceWindowUpdate{false};
+// When events were last pumped, in SDL ticks; main thread only.
+static Uint64 g_iLastPumpTicks = 0;
+
+static void PumpOnMainThread() {
+  SDL_PumpEvents();
+  g_iLastPumpTicks = SDL_GetTicks();
+}
+
+void PumpSDLEvents() {
+  RunOnMainThread(PumpOnMainThread);
+  g_bPumpedSinceWindowUpdate = true;
+}
+
+#if defined(MACOSX)
+/* [NSApp run] is stopped, so the window server's events only get taken when
+ * something pumps them. While the game thread is busy (loading), pump them
+ * from the main thread, or macOS shows the spinning cursor. Runs on the main
+ * queue, so it never runs during the game thread's RunOnMainThread calls. */
+static dispatch_source_t g_StallPumpTimer = nullptr;
+
+static void StartStallPump() {
+  g_StallPumpTimer = dispatch_source_create(
+      DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+  dispatch_source_set_timer(
+      g_StallPumpTimer, dispatch_time(DISPATCH_TIME_NOW, 0),
+      250 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
+  dispatch_source_set_event_handler_f(g_StallPumpTimer, [](void*) {
+    if (SDL_GetTicks() - g_iLastPumpTicks > 500) {
+      PumpOnMainThread();
+    }
+  });
+  dispatch_resume(g_StallPumpTimer);
+}
+
+static void StopStallPump() {
+  if (g_StallPumpTimer != nullptr) {
+    dispatch_source_cancel(g_StallPumpTimer);
+    dispatch_release(g_StallPumpTimer);
+    g_StallPumpTimer = nullptr;
+  }
+}
+#endif
+
 // DisplaySpec ids are SDL display ids, which are only stable within a run, so
 // the first display with a matching name is used too (ids from another
 // backend, like "\\.\DISPLAY1", match neither and pick the primary display).
@@ -129,17 +176,20 @@ LowLevelWindow_SDL::LowLevelWindow_SDL() {
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, g_sSDLVideoDriver.Get().c_str());
   }
 #endif
-  std::string sError;
   RunOnMainThread([&] {
-#if defined(MACOSX)
-    MacOSX_StopAppEventLoop();
-#endif
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-      sError = SDL_GetError();
+      m_sInitError = SDL_GetError();
+      return;
     }
+#if defined(MACOSX)
+    // Only now: the platform window, which Create falls back to if SDL
+    // failed, needs [NSApp run].
+    MacOSX_StopAppEventLoop();
+    StartStallPump();
+#endif
   });
-  if (!sError.empty()) {
-    RageException::Throw("SDL_Init failed: %s", sError.c_str());
+  if (!m_sInitError.empty()) {
+    return;
   }
   // Off until InputHandler_SDL takes them.
   for (Uint32 type :
@@ -158,6 +208,9 @@ LowLevelWindow_SDL::~LowLevelWindow_SDL() {
     SDL_GL_MakeCurrent(m_pWindow, nullptr);
   }
   RunOnMainThread([this] {
+#if defined(MACOSX)
+    StopStallPump();
+#endif
     if (m_Context != nullptr) {
       SDL_GL_DestroyContext(m_Context);
     }
@@ -232,7 +285,13 @@ std::string LowLevelWindow_SDL::SetVideoMode(
       m_Context = SDL_GL_CreateContext(m_pWindow);
     }
     if (m_Context == nullptr) {
-      return ssprintf("SDL_GL_CreateContext failed: %s", SDL_GetError());
+      const std::string sError =
+          ssprintf("SDL_GL_CreateContext failed: %s", SDL_GetError());
+      // Without a context the window is no use; the next mode (another bpp,
+      // say) makes both again.
+      SDL_DestroyWindow(m_pWindow);
+      m_pWindow = nullptr;
+      return sError;
     }
     // Creating a context makes it current here; TryVideoMode makes m_Context
     // current on the rendering thread.
@@ -381,15 +440,22 @@ bool LowLevelWindow_SDL::IsSoftwareRenderer(std::string& sError) {
 void LowLevelWindow_SDL::SwapBuffers() { SDL_GL_SwapWindow(m_pWindow); }
 
 void LowLevelWindow_SDL::Update() {
+  // Each of these is a wait for the main thread on macOS, so only when needed.
   const bool bShowCursor = PREFSMAN->m_bShowMouseCursor;
-  RunOnMainThread([bShowCursor] {
-    if (bShowCursor) {
-      SDL_ShowCursor();
-    } else {
-      SDL_HideCursor();
-    }
-    SDL_PumpEvents();
-  });
+  if (m_iCursorShown != static_cast<int>(bShowCursor)) {
+    m_iCursorShown = bShowCursor;
+    RunOnMainThread([bShowCursor] {
+      if (bShowCursor) {
+        SDL_ShowCursor();
+      } else {
+        SDL_HideCursor();
+      }
+    });
+  }
+  if (!g_bPumpedSinceWindowUpdate.exchange(false)) {
+    PumpSDLEvents();
+    g_bPumpedSinceWindowUpdate = false;
+  }
 
   // Quit, display and window events are ours; keyboard through joystick
   // events are InputHandler_SDL's. Drop the rest, and input events too if no
@@ -430,9 +496,7 @@ void LowLevelWindow_SDL::Update() {
     if (w != m_Params.width || h != m_Params.height) {
       m_Params.width = m_Params.windowWidth = w;
       m_Params.height = m_Params.windowHeight = h;
-      if (DISPLAY != nullptr) {
-        DISPLAY->ResolutionChanged();
-      }
+      m_bResized = true;  // this runs inside EndFrame; see TakeResized
     }
   }
 }
