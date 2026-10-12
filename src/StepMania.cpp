@@ -368,10 +368,6 @@ std::string StepMania::GetSelectMusicScreen() {
 #include "RageDisplay_OGL.h"
 #endif
 
-#if defined(SUPPORT_GLES2)
-#include "RageDisplay_GLES2.h"
-#endif
-
 #include "RageDisplay_Null.h"
 
 struct VideoCardDefaults {
@@ -564,10 +560,6 @@ RageDisplay* CreateDisplay() {
     if (CompareNoCase(sRenderer, "opengl") == 0) {
 #if defined(SUPPORT_OPENGL)
       pRet = new RageDisplay_Legacy;
-#endif
-    } else if (CompareNoCase(sRenderer, "gles2") == 0) {
-#if defined(SUPPORT_GLES2)
-      pRet = new RageDisplay_GLES2;
 #endif
     } else if (CompareNoCase(sRenderer, "d3d") == 0) {
 // TODO: ANGLE/RageDisplay_Modern
