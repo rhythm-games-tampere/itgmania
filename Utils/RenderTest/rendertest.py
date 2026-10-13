@@ -11,7 +11,8 @@ the RenderTest theme in this directory), writes a fixed Preferences.ini and
 lets the theme drive the game: static scenes, two autoplay gameplay runs and
 one full-song run with RenderProfiler on. The game exits by itself. Results
 land in DIR (default Build/RenderTest/runs/<time>): one PNG per shot,
-perf.json/perf.txt from RenderProfiler and the game log.
+perf.json/perf.txt from RenderProfiler, the game log and textures.txt
+(sizes of the textures the scenes report).
 
 With --theme DIR (e.g. "Themes/Simply Love"), the RenderTest theme is
 replaced by that theme, and ThemeDriver/ScreenSystemLayer aux.lua steps it
@@ -23,8 +24,9 @@ Time is frame-locked (ConstantUpdateDeltaSeconds + FrameLockedSongTime), so
 two runs of the same build should produce identical images.
 
 `compare` diffs two run directories: per-shot pixel stats (diff images are
-written to NEW_DIR/diff) and the perf summary. It exits 1 if any shot differs
-by more than --tolerance on more than --max-fraction of its pixels.
+written to NEW_DIR/diff), texture sizes and the perf summary. It exits 1 if
+any shot differs by more than --tolerance on more than --max-fraction of its
+pixels.
 
 Needs Python 3.8+ and Pillow. Close any running ITGmania first.
 """
@@ -247,7 +249,11 @@ def run(args):
     if text:
         shutil.copy(log, out / "log.txt")
         lines = text.splitlines()
-        errors = [l for l in lines
+        # Texture sizes the scenes report (RenderTest.ReportTexture).
+        textures = sorted({l.split("RenderTest: texture ", 1)[1]
+                           for l in lines if "RenderTest: texture " in l})
+        (out / "textures.txt").write_text("".join(t + "\n" for t in textures))
+        errors =[l for l in lines
                   if re.search(r"(?<!_)\berror\b|Dialog:|ok=false|renderer|"
                                r"OGL |driver", l, re.I)]
         for l in errors[:40]:
@@ -261,6 +267,11 @@ def run(args):
     # The theme logs this after its last step, so it means every step ran.
     done = "RenderTest: done" in text
     failed_shots = text.count("ok=false")
+    # A dialog means something didn't load (it was logged above).
+    dialogs = text.count('Dialog: "')
+    if dialogs:
+        print(f"{dialogs} dialogs")
+        failed_shots += dialogs
     # A single flat colour means the capture failed (e.g. black under Xvfb).
     from PIL import Image
     for p in sorted(out.glob("*.png")):
@@ -299,6 +310,36 @@ def print_perf(a, b=None):
             print(f"  {name:22} {x:10.3f} {y:10.3f} {pct:+7.1f}%")
 
 
+TEXTURE_LINE = re.compile(r"^(.*) image (\d+)x(\d+) texture (\d+)x(\d+)$")
+
+
+def read_textures(path):
+    """{texture path: (image w, image h, texture w, texture h)}"""
+    sizes = {}
+    for line in path.read_text().splitlines():
+        m = TEXTURE_LINE.match(line)
+        if m:
+            sizes[m[1]] = tuple(int(v) for v in m.groups()[1:])
+    return sizes
+
+
+def compare_textures(pa, pb):
+    """Texture sizes that changed, and the texel totals."""
+    if not (pa.exists() and pb.exists()):
+        return
+    a, b = read_textures(pa), read_textures(pb)
+    print(f"\n{'texture':52} {'baseline':>11} {'new':>11}")
+    for name in sorted(a.keys() | b.keys()):
+        sa = "%dx%d" % a[name][2:] if name in a else "-"
+        sb = "%dx%d" % b[name][2:] if name in b else "-"
+        if sa != sb:
+            print(f"{name[-52:]:52} {sa:>11} {sb:>11}")
+    ta = sum(s[2] * s[3] for s in a.values())
+    tb = sum(s[2] * s[3] for s in b.values())
+    pct = (tb - ta) / ta * 100 if ta else 0
+    print(f"{'total texels':52} {ta:11d} {tb:11d} {pct:+.1f}%")
+
+
 def compare(args):
     from PIL import Image, ImageChops
 
@@ -333,6 +374,7 @@ def compare(args):
             diff_dir.mkdir(exist_ok=True)
             Image.eval(d, lambda v: min(255, v * 8)).save(diff_dir / n)
 
+    compare_textures(a / "textures.txt", b / "textures.txt")
     pa, pb = a / "perf.json", b / "perf.json"
     if pa.exists() and pb.exists():
         print(f"\n{'perf':24} {'baseline':>10} {'new':>10}")

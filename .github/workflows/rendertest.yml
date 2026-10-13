@@ -95,6 +95,22 @@ jobs:
             $cmd
           fi
 
+      - name: Run with power-of-two textures
+        shell: bash
+        run: |
+          cmd="python Utils/RenderTest/rendertest.py run --out rendertest-pot --timeout 1500 --size 960x540 --no-perf --pref WindowDriver=Native --pref NonPowerOfTwoTextures=0"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1920x1080x24" $cmd
+          else
+            $cmd
+          fi
+          {
+            echo "### ${{ matrix.name }}: non-power-of-two textures vs. padded"
+            echo '```'
+            python Utils/RenderTest/rendertest.py compare rendertest-pot rendertest-out || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run with the SDL window
         shell: bash
         run: |
@@ -146,3 +162,9 @@ jobs:
         with:
           name: ${{ env.ARTIFACT }}-sdl
           path: rendertest-sdl
+      - name: Upload power-of-two results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}-pot
+          path: rendertest-pot

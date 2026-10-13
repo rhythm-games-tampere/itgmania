@@ -19,6 +19,7 @@ RenderTest = {
 		{ name = "model", scene = "model" },
 		{ name = "lighting", scene = "lighting" },
 		{ name = "banners", scene = "banners" },
+		{ name = "npot", scene = "npot" },
 		{ name = "gameplay-default-cel", gameplay = true, skins = { "default", "cel" },
 		  shots = { [420] = "intro", [1500] = "notes" } },
 		{ name = "gameplay-metal-vivid-celshaded", gameplay = true, skins = { "metal", "vivid" },
@@ -55,6 +56,14 @@ end
 function RenderTest.Shot(name)
 	local ok, path = SaveScreenshot(nil, false, false, name .. "__", "")
 	Trace("RenderTest: screenshot " .. name .. " -> " .. tostring(path) .. " ok=" .. tostring(ok))
+end
+
+-- rendertest.py collects these lines into textures.txt.
+function RenderTest.ReportTexture(tex)
+	if not tex then return end
+	Trace(("RenderTest: texture %s image %dx%d texture %dx%d"):format(
+		tex:GetPath(), tex:GetImageWidth(), tex:GetImageHeight(),
+		tex:GetTextureWidth(), tex:GetTextureHeight()))
 end
 
 function RenderTest.SetupGameplay(step)

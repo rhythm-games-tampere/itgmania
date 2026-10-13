@@ -4,6 +4,7 @@
 return Def.ActorFrame{
 	Def.Sprite{ Texture="rt movie.avi",
 		InitCommand=function(self) self:Center():zoom(3):GetTexture():rate(0) end,
+		OnCommand=function(self) RenderTest.ReportTexture(self:GetTexture()) end,
 		RenderTestStartMessageCommand=function(self) self:GetTexture():rate(1) end,
 	},
 	Def.Sprite{ Texture="rt movie.avi",
