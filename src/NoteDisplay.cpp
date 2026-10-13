@@ -704,13 +704,20 @@ void NoteDisplay::Update(float fDeltaTime) {
    * and noteskins are tuned to effects running at that speed. Only the first
    * call of a frame updates actors; the others just add their time, which is
    * applied when a resource is next drawn or updated. Same total time as
-   * updating on every call, at a third of the cost. */
+   * updating on every call, at a third of the cost. Actors that listen for
+   * messages still update on every call, as messages sent between the calls
+   * (judgments) can start tweens that the saved-up time mustn't advance. */
   static uint64_t last_frame = UINT64_MAX;
   const uint64_t frame = GameLoop::GetFrameNumber();
   if (frame == last_frame) {
     for (auto& color_map : g_NoteResource) {
       for (auto& it : color_map.second) {
-        it.second->m_fPendingDelta += fDeltaTime;
+        NoteResource* pRes = it.second;
+        if (pRes->m_iDeferrable == 0) {
+          pRes->m_pActor->Update(fDeltaTime);
+        } else {
+          pRes->m_fPendingDelta += fDeltaTime;
+        }
       }
     }
     return;

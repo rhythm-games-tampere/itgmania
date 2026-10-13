@@ -406,7 +406,8 @@ void ScreenDebugOverlay::Update(float fDeltaTime) {
   /* Hidden almost all the time, but has ~85 actors. Skip updating them while
    * hidden and catch up when shown; this screen queues no screen messages. */
   if (!g_bIsDisplayed) {
-    m_fHiddenDelta += fDeltaTime;
+    // Enough to finish any tween; unbounded, hours hidden would add up.
+    m_fHiddenDelta = std::min(m_fHiddenDelta + fDeltaTime, 10.0f);
     this->SetVisible(false);
     return;
   }

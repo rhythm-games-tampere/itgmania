@@ -5,6 +5,7 @@
 #include <string>
 
 class Actor;
+struct Message;
 
 /** @brief Call-tree CPU profiler for actor Update/Draw/Command work.
  *
@@ -79,13 +80,15 @@ struct Scope {
   Scope& operator=(const Scope&) = delete;
 };
 
-// Actor node with a child node named after the command.
+// Actor node with a child node named after the command. Takes the message
+// rather than its name: Message::GetName copies, which only profiling needs.
+const char* InternName(const Message& msg);
 struct CommandScope {
   Scope actor;
   Scope name;
-  CommandScope(const Actor* a, const std::string& cmd)
+  CommandScope(const Actor* a, const Message& msg)
       : actor(a, kCommand),
-        name(actor.pushed ? Intern(cmd) : nullptr, kNamed) {}
+        name(actor.pushed ? InternName(msg) : nullptr, kNamed) {}
 };
 
 // Consecutive named sections inside one function:

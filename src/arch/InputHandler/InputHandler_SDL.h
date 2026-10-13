@@ -17,7 +17,9 @@ struct SDL_Joystick;
  * default in place of the platform handlers. */
 class InputHandler_SDL : public InputHandler {
  public:
-  InputHandler_SDL();
+  // Without joysticks, SDL only reads the keyboard and mouse (see
+  // InputHandler_SDLKeyboard).
+  explicit InputHandler_SDL(bool bJoysticks = true);
   ~InputHandler_SDL();
 
   void Update();
@@ -29,6 +31,7 @@ class InputHandler_SDL : public InputHandler {
   void OpenJoystick(uint32_t id);
 
   bool m_bKeyboard = false;  // the SDL window is up
+  bool m_bJoysticks;
   bool m_bDevicesChanged = false;
   std::set<uint32_t> m_StartupJoysticks;  // SDL_JoystickIDs, opened or not
   // SDL_JoystickID -> open joystick and its DEVICE_JOYn.
@@ -43,6 +46,13 @@ class InputHandler_SDL : public InputHandler {
   RageThread m_JoystickThread;
   std::atomic<bool> m_bShutdown{false};
   static int JoystickThread_Start(void* p);
+};
+
+/** @brief Keyboard and mouse only, for when another handler reads the
+ * joysticks (LinuxEvent, say): two handlers numbering joysticks collide. */
+class InputHandler_SDLKeyboard : public InputHandler_SDL {
+ public:
+  InputHandler_SDLKeyboard() : InputHandler_SDL(false) {}
 };
 
 #endif

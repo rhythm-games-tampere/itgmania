@@ -1557,7 +1557,7 @@ void Actor::HandleMessage(const Message& msg) { PlayCommandNoRecurse(msg); }
 void Actor::PlayCommandNoRecurse(const Message& msg) {
   const apActorCommands* pCmd = GetCommand(msg.GetName());
   if (pCmd != nullptr && (*pCmd)->IsSet() && !(*pCmd)->IsNil()) {
-    RenderProfiler::CommandScope prof(this, msg.GetName());
+    RenderProfiler::CommandScope prof(this, msg);
     RunCommands(*pCmd, &msg.GetParamTable());
   }
 }

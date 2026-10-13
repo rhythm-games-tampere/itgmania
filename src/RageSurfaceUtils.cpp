@@ -166,6 +166,11 @@ bool RageSurfaceUtils::ConvertSurface(
     return false;
   }
 
+  // Padding (up to a power-of-two texture size) is never written by the
+  // copy; zero it, as wrapped or filtered edges sample it.
+  if (width > src->w || height > src->h) {
+    memset(dst->pixels, 0, static_cast<size_t>(dst->pitch) * dst->h);
+  }
   CopySurface(src, dst);
   return true;
 }

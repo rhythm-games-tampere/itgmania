@@ -566,6 +566,10 @@ static WNDPROC g_AdoptedWndProc = nullptr;
 
 static LRESULT CALLBACK
 AdoptedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+  // Suppress autorun (memory cards), as GraphicsWindow_WndProc does.
+  if (msg == g_iQueryCancelAutoPlayMessage) {
+    return true;
+  }
   if (msg == WM_COPYDATA) {
     QueueCommandLine(lParam);
   }
@@ -576,6 +580,8 @@ void GraphicsWindow::AdoptWindow(HWND hWnd) {
   g_hWndMain = hWnd;
   CrashHandler::SetForegroundWindow(hWnd);
   if (hWnd != nullptr) {
+    // Initialize registers this too, but isn't called for an adopted window.
+    g_iQueryCancelAutoPlayMessage = RegisterWindowMessage("QueryCancelAutoPlay");
     g_AdoptedWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(
         hWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(AdoptedWndProc)));
   }

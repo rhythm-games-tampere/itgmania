@@ -416,6 +416,17 @@ void Sprite::UpdateAnimationState() {
   // Don't bother with state switching logic if there's only one state.
   // We already know what's going to show.
   if (m_States.size() > 1) {
+    // A long update (a sprite not updated for a while, see NoteDisplay)
+    // skips whole loops instead of stepping through every frame of them.
+    // Only if every state has a delay: a negative one ends the animation.
+    const float fLength = m_animation_length_seconds;
+    if (fLength > 0 && m_fSecsIntoState > fLength &&
+        std::all_of(m_States.begin(), m_States.end(), [](const State& s) {
+          return s.fDelay > min_state_delay;
+        })) {
+      m_fSecsIntoState = std::fmod(m_fSecsIntoState, fLength);
+      PlayCommand("AnimationFinished");
+    }
     // UpdateAnimationState changed to not loop forever on negative state
     // delay.  This allows a state to last forever when it is reached, so
     // the animation has a built-in ending point. -Kyz
@@ -865,10 +876,24 @@ std::string Sprite::GetTexturePath() const {
   return m_pTexture->GetID().filename;
 }
 
+/* Custom coordinates turn wrapping on only where it shows: coordinates past
+ * the texture's edges, or scrolling (texcoordvelocity). A rect inside the
+ * texture is left clamped: with wrapping, filtering at its edges would blend
+ * in the opposite edge of the image, as textures aren't padded any more.
+ * texturewrapping called afterwards still decides. */
+void Sprite::UpdateCustomCoordsWrapping() {
+  constexpr float kEpsilon = 1e-4f;
+  bool bOutside = m_fTexCoordVelocityX != 0 || m_fTexCoordVelocityY != 0;
+  for (float f : m_CustomTexCoords) {
+    bOutside = bOutside || f < -kEpsilon || f > 1 + kEpsilon;
+  }
+  m_bTextureWrapping = bOutside;
+}
+
 void Sprite::SetCustomTextureRect(const RectF& new_texcoord_frect) {
   m_bUsingCustomTexCoords = true;
-  m_bTextureWrapping = true;
   TexCoordArrayFromRect(m_CustomTexCoords, new_texcoord_frect);
+  UpdateCustomCoordsWrapping();
 }
 
 void Sprite::SetCustomTextureCoords(
@@ -876,10 +901,10 @@ void Sprite::SetCustomTextureCoords(
         fTexCoords[8])  // order: top left, bottom left, bottom right, top right
 {
   m_bUsingCustomTexCoords = true;
-  m_bTextureWrapping = true;
   for (int i = 0; i < 8; i++) {
     m_CustomTexCoords[i] = fTexCoords[i];
   }
+  UpdateCustomCoordsWrapping();
 }
 
 void Sprite::SetCustomImageRect(RectF rectImageCoords) {
@@ -955,6 +980,9 @@ void Sprite::StopUsingCustomPosCoords() { m_bUsingCustomPosCoords = false; }
 void Sprite::SetTexCoordVelocity(float fVelX, float fVelY) {
   m_fTexCoordVelocityX = fVelX;
   m_fTexCoordVelocityY = fVelY;
+  if (fVelX != 0 || fVelY != 0) {
+    m_bTextureWrapping = true;  // scrolling goes past the edges
+  }
 }
 
 void Sprite::ScaleToClipped(float fWidth, float fHeight) {

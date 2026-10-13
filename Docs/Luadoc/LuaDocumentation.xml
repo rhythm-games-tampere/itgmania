@@ -5019,7 +5019,8 @@ prev_note_name, succeeded = options:NoteSkin("cel")
 	</Function>
 	<Function name='SupportsRenderToTexture' return='bool' arguments=''>
 		Return <code>true</code> if the current renderer supports render-to-texture,
-		<code>false</code> otherwise.
+		<code>false</code> otherwise. Reliable: OpenGL always supports it, Direct3D never does,
+		including when OpenGL failed and "opengl,d3d" in VideoRenderers fell back to Direct3D.
 	</Function>
 	<Function name='SupportsFullscreenBorderlessWindow' return='bool' arguments=''>
 		Return <code>true</code> if the current renderer/window implementation supports
@@ -6192,6 +6193,8 @@ local spr = Def.Sprite{
 	</Function>
 	<Function name='customtexturerect' return='void' arguments='float fLeft, float fTop, float fRight, float fBottom'>
 		Allows the themer to set a custom texture rectangle that effects the way the texture is drawn.
+		Turns texture wrapping on only if the rectangle reaches outside 0..1 or the Sprite scrolls
+		(<Link function='texcoordvelocity' />); call <Link class='Actor' function='texturewrapping' /> afterwards to override.
 	</Function>
 	<Function name='get_use_effect_clock_for_texcoords' return='bool' arguments=''>
 		Returns true if the sprite is using the effect clock for texcoordvelocity.
@@ -6219,6 +6222,7 @@ local spr = Def.Sprite{
 	</Function>
 	<Function name='texcoordvelocity' return='void' arguments='float fVelX, float fVelY'>
 		Set the texture coordinate velocity which controls how the Sprite changes as it animates.  A velocity of 1 makes the texture scroll all the way once per second.
+		A nonzero velocity turns texture wrapping on.
 	</Function>
 	<!-- sm-ssc addons -->
 	<Function name='CropTo' return='void' arguments='float fWidth, float fHeight'>

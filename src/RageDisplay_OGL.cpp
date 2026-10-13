@@ -2529,8 +2529,7 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   SetTextureWrapping(TextureUnit_1, false);
 
   // Rows are packed (RageSurface pitch is w * bytes per pixel), which an
-  // odd-width 16-bit texture breaks with GL's default 4-byte alignment. Set
-  // per upload: textures also load on a second, shared context.
+  // odd-width 16-bit texture breaks with GL's default 4-byte alignment.
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
   glPixelStorei(
       GL_UNPACK_ROW_LENGTH, pImg->pitch / pImg->format->BytesPerPixel);

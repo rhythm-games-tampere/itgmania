@@ -4,8 +4,10 @@
 
 #include <atomic>
 #include <cmath>
+#include <map>
 #include <set>
 #include <string>
+#include <utility>
 
 #include "DisplaySpec.h"
 #include "Preference.h"
@@ -32,6 +34,9 @@
 #include <pthread.h>
 
 void MacOSX_StopAppEventLoop();  // archutils/Darwin/SMMain.mm
+#elif defined(__linux__) && defined(HAVE_XRANDR)
+#include <X11/Xlib.h>
+#include <X11/extensions/Xrandr.h>
 #endif
 
 // Off asks for a compatibility context, like the platform windows.
@@ -115,22 +120,91 @@ static void StopStallPump() {
 }
 #endif
 
-// DisplaySpec ids are SDL display ids, which are only stable within a run, so
-// the first display with a matching name is used too (ids from another
-// backend, like "\\.\DISPLAY1", match neither and pick the primary display).
-static SDL_DisplayID FindDisplay(const std::string& sId) {
-  int iCount = 0;
-  SDL_DisplayID* pDisplays = SDL_GetDisplays(&iCount);
-  SDL_DisplayID found = 0;
-  for (int i = 0; i < iCount && found == 0; ++i) {
-    const char* sName = SDL_GetDisplayName(pDisplays[i]);
-    if (sId == ssprintf("%u", pDisplays[i]) ||
-        (sName != nullptr && sId == sName)) {
-      found = pDisplays[i];
+#if defined(__linux__) && defined(HAVE_XRANDR)
+// RandR output names (what LowLevelWindow_X11 uses as display ids) by the
+// position of the CRTC showing them. SDL keeps the output name to itself.
+static std::map<std::pair<int, int>, std::string> X11OutputsByPosition() {
+  std::map<std::pair<int, int>, std::string> out;
+  if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") != 0) {
+    return out;
+  }
+  Display* pDpy = XOpenDisplay(nullptr);
+  if (pDpy == nullptr) {
+    return out;
+  }
+  XRRScreenResources* pRes =
+      XRRGetScreenResourcesCurrent(pDpy, DefaultRootWindow(pDpy));
+  for (int i = 0; pRes != nullptr && i < pRes->noutput; ++i) {
+    XRROutputInfo* pOut = XRRGetOutputInfo(pDpy, pRes, pRes->outputs[i]);
+    if (pOut != nullptr && pOut->crtc != None) {
+      if (XRRCrtcInfo* pCrtc = XRRGetCrtcInfo(pDpy, pRes, pOut->crtc)) {
+        out.emplace(
+            std::make_pair(pCrtc->x, pCrtc->y),
+            std::string(pOut->name, pOut->nameLen));
+        XRRFreeCrtcInfo(pCrtc);
+      }
+    }
+    if (pOut != nullptr) {
+      XRRFreeOutputInfo(pOut);
     }
   }
+  if (pRes != nullptr) {
+    XRRFreeScreenResources(pRes);
+  }
+  XCloseDisplay(pDpy);
+  return out;
+}
+#endif
+
+/* DisplaySpec ids are what the platform windows use, so DisplayId keeps
+ * working when switching between them (and across runs: SDL's display ids
+ * are only stable within one): "\\.\DISPLAY1" on Windows, the RandR output
+ * name on X11. Elsewhere, or if that fails, the SDL display id. */
+static std::map<SDL_DisplayID, std::string> DisplayIds() {
+  std::map<SDL_DisplayID, std::string> ids;
+#if defined(__linux__) && defined(HAVE_XRANDR)
+  const auto outputs = X11OutputsByPosition();
+#endif
+  int iCount = 0;
+  SDL_DisplayID* pDisplays = SDL_GetDisplays(&iCount);
+  for (int i = 0; i < iCount; ++i) {
+    const SDL_DisplayID id = pDisplays[i];
+    std::string sId = ssprintf("%u", id);
+#if defined(_WIN32)
+    HMONITOR hMonitor = static_cast<HMONITOR>(SDL_GetPointerProperty(
+        SDL_GetDisplayProperties(id), SDL_PROP_DISPLAY_WINDOWS_HMONITOR_POINTER,
+        nullptr));
+    MONITORINFOEXA info;
+    info.cbSize = sizeof(info);
+    if (hMonitor != nullptr && GetMonitorInfoA(hMonitor, &info)) {
+      sId = info.szDevice;
+    }
+#elif defined(__linux__) && defined(HAVE_XRANDR)
+    SDL_Rect r;
+    if (SDL_GetDisplayBounds(id, &r)) {
+      auto it = outputs.find(std::make_pair(r.x, r.y));
+      if (it != outputs.end()) {
+        sId = it->second;
+      }
+    }
+#endif
+    ids[id] = sId;
+  }
   SDL_free(pDisplays);
-  return found != 0 ? found : SDL_GetPrimaryDisplay();
+  return ids;
+}
+
+// The display DisplaySpec id sId names: by id (see DisplayIds), or the SDL
+// display id or name. The primary display if none matches.
+static SDL_DisplayID FindDisplay(const std::string& sId) {
+  for (const auto& d : DisplayIds()) {
+    const char* sName = SDL_GetDisplayName(d.first);
+    if (sId == d.second || sId == ssprintf("%u", d.first) ||
+        (sName != nullptr && sId == sName)) {
+      return d.first;
+    }
+  }
+  return SDL_GetPrimaryDisplay();
 }
 
 static int RefreshRate(const SDL_DisplayMode* pMode) {
@@ -311,6 +385,13 @@ std::string LowLevelWindow_SDL::SetVideoMode(
     bNewDeviceOut = true;
   }
 
+  // SDL keeps the screensaver (and display sleep) off by default.
+  if (PREFSMAN->m_bDisableScreenSaver) {
+    SDL_DisableScreenSaver();
+  } else {
+    SDL_EnableScreenSaver();
+  }
+
   SDL_SetWindowTitle(m_pWindow, p.sWindowTitle.c_str());
   if (p.sIconFile != m_sIconFile) {
     m_sIconFile = p.sIconFile;
@@ -383,10 +464,8 @@ void LowLevelWindow_SDL::GetDisplaySpecs(DisplaySpecs& out) const {
 }
 
 void LowLevelWindow_SDL::GetDisplaySpecsOnMainThread(DisplaySpecs& out) {
-  int iCount = 0;
-  SDL_DisplayID* pDisplays = SDL_GetDisplays(&iCount);
-  for (int i = 0; i < iCount; ++i) {
-    const SDL_DisplayID id = pDisplays[i];
+  for (const auto& d : DisplayIds()) {
+    const SDL_DisplayID id = d.first;
     auto mode = [](const SDL_DisplayMode* m) {
       return DisplayMode{
           static_cast<unsigned>(m->w), static_cast<unsigned>(m->h),
@@ -401,7 +480,7 @@ void LowLevelWindow_SDL::GetDisplaySpecsOnMainThread(DisplaySpecs& out) {
     SDL_free(pModes);
 
     const char* sName = SDL_GetDisplayName(id);
-    const std::string sId = ssprintf("%u", id);
+    const std::string& sId = d.second;
     const SDL_DisplayMode* pDesktop = SDL_GetDesktopDisplayMode(id);
     SDL_Rect r;
     if (pDesktop != nullptr && SDL_GetDisplayBounds(id, &r)) {
@@ -413,7 +492,6 @@ void LowLevelWindow_SDL::GetDisplaySpecsOnMainThread(DisplaySpecs& out) {
       out.insert(DisplaySpec(sId, sName ? sName : sId, modes));
     }
   }
-  SDL_free(pDisplays);
 }
 
 void LowLevelWindow_SDL::LogDebugInformation() const {

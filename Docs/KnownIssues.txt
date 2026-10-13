@@ -1,5 +1,14 @@
 The following is a list of known issues with StepMania 5.
 
+* Simply Love decides whether render-to-texture works from the VideoRenderers
+  preference alone (SupportsRenderToTexture() in Scripts/SL-SupportHelpers.lua:
+  false only if it starts with "d3d"). OpenGL now needs version 3.0 (or 2.1
+  with framebuffer objects), so older Windows GPUs fall back from "opengl,d3d"
+  to Direct3D, which has no render-to-texture; the theme still assumes it,
+  and the Thonk visual style and evaluation screen background draw wrong.
+  DISPLAY:SupportsRenderToTexture() reports the renderer actually in use and
+  can replace that check.
+
 * The course editor is not working. (It could stand to be rewritten.)
 
 * The scoring system needs to be made global for the game instead

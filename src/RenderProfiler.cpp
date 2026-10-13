@@ -14,6 +14,7 @@
 #include "Actor.h"
 #include "GameState.h"
 #include "LuaManager.h"
+#include "MessageManager.h"
 #include "PlayerOptions.h"
 #include "PlayerState.h"
 #include "Preference.h"
@@ -548,5 +549,7 @@ void AddDraw(int verts) {
 const char* Intern(const std::string& s) {
   return g_interned.insert(s).first->c_str();
 }
+
+const char* InternName(const Message& msg) { return Intern(msg.GetName()); }
 
 }  // namespace RenderProfiler

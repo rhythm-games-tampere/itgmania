@@ -126,6 +126,7 @@ class Sprite : public Actor {
   EffectMode m_EffectMode;
   bool m_bUsingCustomTexCoords;
   bool m_bUsingCustomPosCoords;
+  void UpdateCustomCoordsWrapping();
   bool m_bSkipNextUpdate;
   /**
    * @brief Set up the coordinates for the texture.

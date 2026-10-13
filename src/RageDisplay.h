@@ -402,8 +402,7 @@ class RageDisplay {
   virtual std::string TryVideoMode(
       const VideoModeParams& p, bool& bNewDeviceOut) = 0;
 
-  void DrawPolyLine(
-      const RageSpriteVertex& p1, const RageSpriteVertex& p2, float LineWidth);
+  float PixelsPerUnit(const RageVector3& p) const;
 
   // Stuff in RageDisplay.cpp
   void SetDefaultRenderStates();

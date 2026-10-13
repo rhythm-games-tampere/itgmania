@@ -207,53 +207,121 @@ void RageDisplay::StatsAddVerts(int iNumVertsRendered) {
   g_iVertsRenderedSinceLastCheck += iNumVertsRendered;
 }
 
-/* Draw a line as a quad.  GL_LINES with SmoothLines off can draw line
- * ends at odd angles--they're forced to axis-alignment regardless of the
- * angle of the line. */
-void RageDisplay::DrawPolyLine(
-    const RageSpriteVertex& p1, const RageSpriteVertex& p2, float LineWidth) {
-  // soh cah toa strikes strikes again!
-  float opp = p2.p.x - p1.p.x;
-  float adj = p2.p.y - p1.p.y;
-  float hyp = std::pow(opp * opp + adj * adj, 0.5f);
-
-  float lsin = opp / hyp;
-  float lcos = adj / hyp;
-
-  RageSpriteVertex v[4];
-
-  v[0] = v[1] = p1;
-  v[2] = v[3] = p2;
-
-  float ydist = lsin * LineWidth / 2;
-  float xdist = lcos * LineWidth / 2;
-
-  v[0].p.x += xdist;
-  v[0].p.y -= ydist;
-  v[1].p.x -= xdist;
-  v[1].p.y += ydist;
-  v[2].p.x -= xdist;
-  v[2].p.y += ydist;
-  v[3].p.x += xdist;
-  v[3].p.y -= ydist;
-
-  this->DrawQuad(v);
+// Screen pixels per object-space unit at p, through the current matrices
+// (averaged over x and y); 0 if it can't be worked out.
+float RageDisplay::PixelsPerUnit(const RageVector3& p) const {
+  // Row vectors: object * world * view * projection.
+  RageMatrix modelView, full;
+  RageMatrixMultiply(&modelView, GetViewTop(), GetWorldTop());
+  RageMatrixMultiply(&full, GetProjectionTop(), &modelView);
+  const ActualVideoModeParams params = GetActualVideoModeParams();
+  RageVector3 o, x, y;
+  const RageVector3 px(p.x + 1, p.y, p.z), py(p.x, p.y + 1, p.z);
+  RageVec3TransformCoord(&o, &p, &full);
+  RageVec3TransformCoord(&x, &px, &full);
+  RageVec3TransformCoord(&y, &py, &full);
+  auto pixels = [&](const RageVector3& a) {
+    const float dx = (a.x - o.x) * params.width / 2;
+    const float dy = (a.y - o.y) * params.height / 2;
+    return std::sqrt(dx * dx + dy * dy);
+  };
+  const float f = (pixels(x) + pixels(y)) / 2;
+  return std::isfinite(f) ? f : 0;
 }
 
+/* A line strip with round joins, as triangles in one draw. With SmoothLines,
+ * a fringe about a pixel wide fades each edge out, standing in for the
+ * antialiased GL lines core profiles don't have; a line thinner than the
+ * fringe fades as a whole. */
 void RageDisplay::DrawLineStripInternal(
     const RageSpriteVertex v[], int iNumVerts, float LineWidth) {
   ASSERT(iNumVerts >= 2);
 
-  /* Draw a line strip with rounded corners using polys. This is used on
-   * cards that have strange allergic reactions to antialiased points and
-   * lines. */
-  for (int i = 0; i < iNumVerts - 1; ++i) {
-    DrawPolyLine(v[i], v[i + 1], LineWidth);
+  const float fPixelsPerUnit = PixelsPerUnit(v[0].p);
+  float fFeather = 0;
+  float fCoreAlpha = 1;
+  if (GetActualVideoModeParams().bSmoothLines && fPixelsPerUnit > 0) {
+    fFeather = 1 / fPixelsPerUnit;
+    if (LineWidth < fFeather) {
+      fCoreAlpha = LineWidth / fFeather;
+    }
+  }
+  // Solid out to fInner, fading out to fOuter.
+  const float fInner = std::max(LineWidth - fFeather, 0.0f) / 2;
+  const float fOuter = fInner + fFeather;
+  if (fOuter <= 0) {
+    return;
   }
 
-  // Join the lines with circles so we get rounded corners.
+  // ponytail: main thread only, like all drawing.
+  static std::vector<RageSpriteVertex> tris;
+  tris.clear();
+
+  auto at = [&](const RageSpriteVertex& src, float dx, float dy, bool edge) {
+    RageSpriteVertex out = src;
+    out.p.x += dx;
+    out.p.y += dy;
+    out.c.a = static_cast<uint8_t>(edge ? 0 : src.c.a * fCoreAlpha);
+    return out;
+  };
+  auto quad = [&](const RageSpriteVertex& a, const RageSpriteVertex& b,
+                  const RageSpriteVertex& c, const RageSpriteVertex& d) {
+    tris.insert(tris.end(), {a, b, c, c, d, a});
+  };
+
+  // Segments: a solid core, and a fringe on each side.
+  for (int i = 0; i < iNumVerts - 1; ++i) {
+    const RageSpriteVertex& p1 = v[i];
+    const RageSpriteVertex& p2 = v[i + 1];
+    const float dx = p2.p.x - p1.p.x;
+    const float dy = p2.p.y - p1.p.y;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len == 0) {
+      continue;  // the joins cover it
+    }
+    const float nx = -dy / len;
+    const float ny = dx / len;
+    const RageSpriteVertex a0 = at(p1, nx * fInner, ny * fInner, false);
+    const RageSpriteVertex a1 = at(p1, -nx * fInner, -ny * fInner, false);
+    const RageSpriteVertex b0 = at(p2, nx * fInner, ny * fInner, false);
+    const RageSpriteVertex b1 = at(p2, -nx * fInner, -ny * fInner, false);
+    if (fInner > 0) {
+      quad(a0, a1, b1, b0);
+    }
+    if (fFeather > 0) {
+      quad(at(p1, nx * fOuter, ny * fOuter, true), a0, b0,
+           at(p2, nx * fOuter, ny * fOuter, true));
+      quad(a1, at(p1, -nx * fOuter, -ny * fOuter, true),
+           at(p2, -nx * fOuter, -ny * fOuter, true), b1);
+    }
+  }
+
+  // Round joins and caps. About one side per two pixels of circumference.
+  const float fOuterPixels = fOuter * fPixelsPerUnit;
+  const int iSides = fPixelsPerUnit > 0
+                         ? std::clamp(int(std::ceil(PI * fOuterPixels)), 6, 32)
+                         : 32;
   for (int i = 0; i < iNumVerts; ++i) {
-    DrawCircle(v[i], LineWidth / 2);
+    const RageSpriteVertex center = at(v[i], 0, 0, false);
+    for (int s = 0; s < iSides; ++s) {
+      const float r0 = float(s) / iSides * 2 * PI;
+      const float r1 = float(s + 1) / iSides * 2 * PI;
+      const float c0 = std::cos(r0), s0 = -std::sin(r0);
+      const float c1 = std::cos(r1), s1 = -std::sin(r1);
+      const RageSpriteVertex i0 = at(v[i], c0 * fInner, s0 * fInner, false);
+      const RageSpriteVertex i1 = at(v[i], c1 * fInner, s1 * fInner, false);
+      if (fInner > 0) {
+        tris.insert(tris.end(), {center, i0, i1});
+      }
+      if (fFeather > 0) {
+        quad(i0, at(v[i], c0 * fOuter, s0 * fOuter, true),
+             at(v[i], c1 * fOuter, s1 * fOuter, true), i1);
+      }
+    }
+  }
+
+  if (!tris.empty()) {
+    DrawTriangles(tris.data(), static_cast<int>(tris.size()));
   }
 }
 

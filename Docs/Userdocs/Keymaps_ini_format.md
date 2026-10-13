@@ -19,10 +19,18 @@ Joysticks and dance pads are now read through SDL by default, in place of
 DirectInput (Windows), HID (macOS) and the Linux event/joystick handlers. SDL
 may number a device's buttons and axes differently from those handlers, and
 may number the devices themselves (Joy1, Joy2, ...) in another order; Xbox-style
-controllers are the likeliest to change. If a pad doesn't respond as mapped,
+controllers are the likeliest to change. SDL numbers devices in order of their
+system device path, so the numbering stays the same between runs as long as
+each pad stays plugged into the same port. If a pad doesn't respond as mapped,
 remap it in the Config Key/Joy Mappings screen. To keep the old handlers, set
 `WindowDriver=Native` in Preferences.ini, or list the handlers in
 `InputDrivers` (e.g. `InputDrivers=DirectInput`).
+
+On Linux, an `InputDrivers` list that names `X11` gets `SDL` in its place
+while the SDL window is in use (X11 can only read the native window's keys).
+If the list also names `LinuxEvent` or `LinuxJoystick`, it gets `SDLKeyboard`
+instead: SDL then reads only the keyboard and mouse, and joysticks keep their
+numbers from the Linux handlers.
 
 
 ## Structure

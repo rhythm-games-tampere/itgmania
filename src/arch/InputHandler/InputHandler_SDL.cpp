@@ -14,6 +14,7 @@
 #include "global.h"
 
 REGISTER_INPUT_HANDLER_CLASS(SDL);
+REGISTER_INPUT_HANDLER_CLASS(SDLKeyboard);
 
 // Physical key positions, like InputHandler_DirectInput's scancode table, so
 // keyboard mappings carry over.
@@ -157,7 +158,7 @@ static const DeviceButton kAxes[][2] = {
     {JOY_AUX_1, JOY_AUX_2},     {JOY_AUX_3, JOY_AUX_4},
 };
 
-InputHandler_SDL::InputHandler_SDL() {
+InputHandler_SDL::InputHandler_SDL(bool bJoysticks) : m_bJoysticks(bJoysticks) {
   m_bKeyboard = SDL_WasInit(SDL_INIT_VIDEO) != 0;
   // Keys from SDL's raw input thread, timestamped as they arrive; window
   // messages only carry GetMessageTime's ~16 ms ticks.
@@ -166,8 +167,9 @@ InputHandler_SDL::InputHandler_SDL() {
   // Pads keep working while another window has focus, like DirectInput's
   // DISCL_BACKGROUND and the Linux and macOS handlers.
   SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-  if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
+  if (m_bJoysticks && !SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
     LOG->Warn("SDL joystick init failed: %s", SDL_GetError());
+    m_bJoysticks = false;
   }
   for (Uint32 type :
        {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP, SDL_EVENT_MOUSE_MOTION,
@@ -176,13 +178,24 @@ InputHandler_SDL::InputHandler_SDL() {
     SDL_SetEventEnabled(type, m_bKeyboard);
   }
 
+  // Numbered (DEVICE_JOY1...) in device path order, which stays the same
+  // across runs and replugging into the same ports; SDL's own order doesn't.
+  if (!m_bJoysticks) {
+    return;
+  }
   int iCount = 0;
   SDL_JoystickID* pIds = SDL_GetJoysticks(&iCount);
+  std::vector<std::pair<std::string, SDL_JoystickID>> vSorted;
   for (int i = 0; i < iCount; ++i) {
     m_StartupJoysticks.insert(pIds[i]);
-    OpenJoystick(pIds[i]);
+    const char* sPath = SDL_GetJoystickPathForID(pIds[i]);
+    vSorted.emplace_back(sPath != nullptr ? sPath : "", pIds[i]);
   }
   SDL_free(pIds);
+  std::stable_sort(vSorted.begin(), vSorted.end());
+  for (const auto& j : vSorted) {
+    OpenJoystick(j.second);
+  }
 
   m_JoystickThread.SetName("SDL joystick thread");
   m_JoystickThread.Create(JoystickThread_Start, this);
@@ -202,7 +215,9 @@ InputHandler_SDL::~InputHandler_SDL() {
         SDL_EVENT_MOUSE_WHEEL}) {
     SDL_SetEventEnabled(type, false);
   }
-  SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+  if (m_bJoysticks) {
+    SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+  }
   SDL_ResetHint(SDL_HINT_AUTO_UPDATE_JOYSTICKS);
   SDL_ResetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS);
 }
@@ -241,10 +256,12 @@ void InputHandler_SDL::OpenJoystick(uint32_t id) {
 
 void InputHandler_SDL::Update() {
 #if defined(MACOSX)
-  // The joystick thread reads values (IOHIDDeviceGetValue works on any
-  // thread), but IOKit's hotplug callbacks only run in the run loop of the
-  // thread that started the joystick subsystem: this one.
-  SDL_UpdateJoysticks();
+  if (m_bJoysticks) {
+    // The joystick thread reads values (IOHIDDeviceGetValue works on any
+    // thread), but IOKit's hotplug callbacks only run in the run loop of the
+    // thread that started the joystick subsystem: this one.
+    SDL_UpdateJoysticks();
+  }
 #endif
   PumpSDLEvents();
   SDL_Event e;

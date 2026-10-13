@@ -15,6 +15,7 @@
 #include "global.h"
 // #include "InputHandler_NSEvent.hpp"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -251,7 +252,8 @@ static LocalizedString INPUT_HANDLERS_EMPTY(
 // D3D renderer; the display starts before input), SDL also reads the
 // keyboard, mouse and joysticks, in place of the platform handlers for them.
 // LinuxEvent and LinuxJoystick go too: their joystick numbers would collide
-// with SDL's.
+// with SDL's. NSEvent goes because SDL's event pump passes macOS's keys to it
+// as well (through SMApplication's sendEvent:), doubling every key.
 static std::vector<std::string> DefaultInputDrivers() {
   std::vector<std::string> drivers = GetDefaultInputDriverList();
   if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
@@ -260,17 +262,46 @@ static std::vector<std::string> DefaultInputDrivers() {
   std::vector<std::string> out = {"SDL"};
   for (const std::string& s : drivers) {
     if (s != "DirectInput" && s != "HID" && s != "X11" && s != "LinuxEvent" &&
-        s != "LinuxJoystick") {
+        s != "LinuxJoystick" && s != "NSEvent") {
       out.push_back(s);
     }
   }
   return out;
 }
 
+// An InputDrivers list from Preferences.ini. X11 reads keys from the native
+// X11 window, so with the SDL window up it would read none: SDL takes its
+// place, for the keyboard and mouse only if another handler in the list reads
+// joysticks.
+static std::vector<std::string> ConfiguredInputDrivers(
+    const std::string& drivers) {
+  std::vector<std::string> out = split(drivers, ',', true);
+  if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+    return out;
+  }
+  auto listed = [&](const char* name) {
+    return std::any_of(out.begin(), out.end(), [&](const std::string& s) {
+      return CompareNoCase(s, name) == 0;
+    });
+  };
+  if (!listed("X11") || listed("SDL") || listed("SDLKeyboard")) {
+    return out;
+  }
+  const char* sdl =
+      listed("LinuxEvent") || listed("LinuxJoystick") ? "SDLKeyboard" : "SDL";
+  for (std::string& s : out) {
+    if (CompareNoCase(s, "X11") == 0) {
+      s = sdl;
+    }
+  }
+  LOG->Info("InputDrivers: using %s in place of X11 with the SDL window.", sdl);
+  return out;
+}
+
 void InputHandler::Create(
     const std::string& drivers_, std::vector<InputHandler*>& add) {
   const std::vector<std::string> driversToTry =
-      drivers_.empty() ? DefaultInputDrivers() : split(drivers_, ',', true);
+      drivers_.empty() ? DefaultInputDrivers() : ConfiguredInputDrivers(drivers_);
 
   if (driversToTry.empty()) {
     RageException::Throw("%s", INPUT_HANDLERS_EMPTY.GetValue().c_str());
