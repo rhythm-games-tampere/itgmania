@@ -297,6 +297,7 @@ void MovieTexture_Generic::CreateTexture() {
   }
 
   texture_handle_ = DISPLAY->CreateTexture(pixfmt, surface_, false);
+  DISPLAY->LabelTexture(texture_handle_, GetID().filename);
 }
 
 /*

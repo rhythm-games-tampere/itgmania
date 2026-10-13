@@ -270,6 +270,12 @@ class RageDisplay {
       uintptr_t iTexHandle, RageSurface* img, int xoffset, int yoffset,
       int width, int height) = 0;
   virtual void DeleteTexture(uintptr_t iTexHandle) = 0;
+  // GLDebug: names for graphics debuggers (RenderDoc). PushDebugGroup returns
+  // whether a group was opened; it doesn't outside BeginFrame/EndFrame, so no
+  // group spans a present.
+  virtual void LabelTexture(uintptr_t /* iTexHandle */, const std::string&) {}
+  virtual bool PushDebugGroup(const char* /* sName */) { return false; }
+  virtual void PopDebugGroup() {}
   /* Return an object to lock pixels for streaming. If not supported, returns
    * nullptr. Delete the object normally. */
   virtual RageTextureLock* CreateTextureLock() { return nullptr; }

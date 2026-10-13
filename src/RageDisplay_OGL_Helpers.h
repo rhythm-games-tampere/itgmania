@@ -27,6 +27,7 @@ class RenderTarget {
       int& iTextureHeightOut) = 0;
 
   virtual uintptr_t GetTexture() const = 0;
+  virtual GLuint GetFramebuffer() const { return 0; }
 
   /* Render to this RenderTarget. */
   virtual void StartRenderingTo() = 0;

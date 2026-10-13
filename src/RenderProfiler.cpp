@@ -32,6 +32,7 @@ bool g_active = false;
 bool g_actor_scopes = false;
 int64_t g_gl[kNumGLStats];
 uint32_t g_session = 0;
+int g_debug_groups = 0;
 
 namespace {
 
@@ -545,6 +546,20 @@ void AddDraw(int verts) {
     n.verts += verts;
   }
 }
+
+bool PushGroup(const void* key, Kind kind, FrameSlot slot) {
+  // Frame slots (Update, Draw, Present) span the present; leave them out.
+  if (kind == kNamed && slot == kSlotNone) {
+    return DISPLAY->PushDebugGroup(static_cast<const char*>(key));
+  }
+  if (kind == kDraw && g_debug_groups >= 2) {
+    return DISPLAY->PushDebugGroup(
+        ActorLabel(static_cast<const Actor*>(key)).c_str());
+  }
+  return false;
+}
+
+void PopGroup() { DISPLAY->PopDebugGroup(); }
 
 const char* Intern(const std::string& s) {
   return g_interned.insert(s).first->c_str();

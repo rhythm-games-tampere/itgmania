@@ -298,6 +298,7 @@ void RageBitmapTexture::Create() {
       pImg->fmt.Mask[3]);
 
   m_uTexHandle = DISPLAY->CreateTexture(pixfmt, pImg, actualID.bMipMaps);
+  DISPLAY->LabelTexture(m_uTexHandle, actualID.filename);
 
   CreateFrameRects();
 

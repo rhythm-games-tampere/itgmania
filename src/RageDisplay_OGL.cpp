@@ -9,6 +9,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,31 @@ using namespace RageDisplay_Legacy_Helpers;
 static bool g_bReversePackedPixelsWorks = true;
 // The KHR_debug callback is installed (GLDebug); see RageDisplay_OGL.h.
 bool g_bGLDebugOutput = false;
+
+/* 0: off. 1: the KHR_debug callback, object labels and a debug group per named
+ * RenderProfiler section, for RenderDoc and friends. 2: also a group per
+ * Actor::Draw (slow; for captures). The SDL window asks for a debug context. */
+Preference<int> g_iGLDebug(
+    "GLDebug",
+#if defined(DEBUG)
+    1
+#else
+    0
+#endif
+);
+
+// Names a GL object for debuggers; the name must already be an object (bound
+// once). Keeps the tail of long names (file paths), under GL's minimum limit.
+static void Label(GLenum identifier, GLuint name, const std::string& s) {
+  if (!g_bGLDebugOutput || name == 0) {
+    return;
+  }
+  constexpr size_t kMax = 255;
+  const size_t skip = s.size() > kMax ? s.size() - kMax : 0;
+  glObjectLabel(
+      identifier, name, static_cast<GLsizei>(s.size() - skip),
+      s.c_str() + skip);
+}
 
 /* OpenGL system information that generally doesn't change at runtime. */
 
@@ -406,6 +432,8 @@ void CheckStreamGeneration() {
   g_stream = StreamBuffers();
   g_stream.generation = g_iContextGeneration;
   glGenBuffers(1, &g_stream.dynamic);
+  CacheBindBuffer(GL_ARRAY_BUFFER, g_cache.array_buffer, g_stream.dynamic);
+  Label(GL_BUFFER, g_stream.dynamic, "stream (dynamic)");
   g_stream.dynamic_offset = kStreamRingSize;
   if (GLAD_GL_ARB_buffer_storage && GLAD_GL_ARB_sync) {
     const GLbitfield flags =
@@ -415,6 +443,7 @@ void CheckStreamGeneration() {
     glBufferStorage(GL_ARRAY_BUFFER, kStreamRingSize, nullptr, flags);
     g_stream.mapped = static_cast<char*>(
         glMapBufferRange(GL_ARRAY_BUFFER, 0, kStreamRingSize, flags));
+    Label(GL_BUFFER, g_stream.ring, "stream (persistent ring)");
   }
 }
 
@@ -583,10 +612,14 @@ void GetNormalMatrix(const RageMatrix& m, float out[9]) {
 template <int N, class Piece>
 void BindPatternIndices(PatternIndices& p, int iPieces, Piece piece) {
   CheckStreamGeneration();
-  if (!p.ibo) {
+  const bool bNew = !p.ibo;
+  if (bNew) {
     glGenBuffers(1, &p.ibo);
   }
   CacheBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_cache.element_buffer, p.ibo);
+  if (bNew) {
+    Label(GL_BUFFER, p.ibo, ssprintf("pattern indices (%d per piece)", N));
+  }
   if (iPieces <= p.pieces) {
     return;
   }
@@ -724,6 +757,7 @@ GLuint LoadProgram(const std::string& sVert, const std::string& sFrag) {
   GLuint hProgram = 0;
   if (hVert && hFrag) {
     hProgram = glCreateProgram();
+    Label(GL_PROGRAM, hProgram, sVert + " + " + sFrag);
     glAttachShader(hProgram, hVert);
     glAttachShader(hProgram, hFrag);
     glBindAttribLocation(hProgram, kAttribPosition, "Position");
@@ -1063,6 +1097,61 @@ void RageDisplay_Legacy::ResolutionChanged() {
   }
 }
 
+// Synchronous, so an error asserts on the offending call's stack.
+static void GLAD_API_PTR OnGLDebugMessage(
+    GLenum /* source */, GLenum type, GLuint id, GLenum /* severity */,
+    GLsizei /* length */, const GLchar* message, const void* /* user */) {
+  static std::unordered_set<GLuint> s_seen;
+  if (type == GL_DEBUG_TYPE_ERROR) {
+#if defined(DEBUG)
+    FAIL_M(ssprintf("GL error (id %u): %s", id, message));
+#else
+    if (s_seen.insert(id).second) {
+      LOG->Warn("GL error (id %u): %s", id, message);
+    }
+#endif
+    return;
+  }
+  // Drivers repeat performance notes every frame; once per id is enough.
+  if (s_seen.insert(id).second) {
+    LOG->Info("GL debug (type 0x%x, id %u): %s", type, id, message);
+  }
+}
+
+// Per context. Needs GL 4.3 or KHR_debug (not macOS).
+static void SetupDebugOutput() {
+  const int iLevel = g_iGLDebug.Get();
+  g_bGLDebugOutput =
+      iLevel > 0 && (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug) != 0;
+  RenderProfiler::g_debug_groups = g_bGLDebugOutput ? iLevel : 0;
+  if (iLevel > 0 && !g_bGLDebugOutput) {
+    LOG->Warn("GLDebug: this driver has no KHR_debug; ignored");
+  }
+  if (!g_bGLDebugOutput) {
+    return;
+  }
+  glEnable(GL_DEBUG_OUTPUT);
+  glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+  glDebugMessageCallback(OnGLDebugMessage, nullptr);
+  glDebugMessageControl(
+      GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_NOTIFICATION, 0, nullptr,
+      GL_FALSE);
+  GLint iFlags = 0;
+  glGetIntegerv(GL_CONTEXT_FLAGS, &iFlags);
+  LOG->Info(
+      "GLDebug %d: KHR_debug output on (%s context)", iLevel,
+      (iFlags & GL_CONTEXT_FLAG_DEBUG_BIT) ? "debug" : "non-debug");
+}
+
+void RageDisplay_Legacy::LabelTexture(
+    uintptr_t iTexHandle, const std::string& sName) {
+  Label(GL_TEXTURE, static_cast<GLuint>(iTexHandle), sName);
+  auto it = g_mapRenderTargets.find(iTexHandle);
+  if (it != g_mapRenderTargets.end()) {
+    Label(GL_FRAMEBUFFER, it->second->GetFramebuffer(), sName);
+  }
+}
+
 // Return true if mode change was successful.
 // bNewDeviceOut is set true if a new device was created and textures
 // need to be reloaded.
@@ -1082,6 +1171,7 @@ std::string RageDisplay_Legacy::TryVideoMode(
   if (!SetupExtensions()) {
     return "Couldn't load the OpenGL functions.";
   }
+  SetupDebugOutput();
 
   // Everything below uses the GL 3.0 names for shaders, buffers and FBOs.
   // macOS compatibility contexts stop at 2.1, but provide the same calls
@@ -1209,6 +1299,16 @@ static bool g_bInFrame = false;
 // buffer into g_pCapturedFrame instead of presenting it.
 static bool g_bCaptureFrame = false;
 static RageSurface* g_pCapturedFrame = nullptr;
+
+bool RageDisplay_Legacy::PushDebugGroup(const char* sName) {
+  if (!g_bGLDebugOutput || !g_bInFrame) {
+    return false;
+  }
+  glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, sName);
+  return true;
+}
+
+void RageDisplay_Legacy::PopDebugGroup() { glPopDebugGroup(); }
 
 bool RageDisplay_Legacy::BeginFrame() {
   // Anything outside RageDisplay may have touched GL. Texture params live on
@@ -2686,6 +2786,9 @@ class RenderTarget_FramebufferObject : public RenderTarget {
       const RenderTargetParam& param, int& iTextureWidthOut,
       int& iTextureHeightOut);
   uintptr_t GetTexture() const { return m_iTexHandle; }
+  GLuint GetFramebuffer() const {
+    return static_cast<GLuint>(m_iFrameBufferHandle);
+  }
   void StartRenderingTo();
   void FinishRenderingTo();
 

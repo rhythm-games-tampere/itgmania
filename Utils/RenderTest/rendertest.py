@@ -2,7 +2,7 @@
 """Reference screenshots and a perf baseline for the rendering work.
 
   rendertest.py run [--out DIR] [--renderer opengl|d3d] [--size WxH] [--no-perf]
-                    [--pref KEY=VALUE ...] [--theme DIR]
+                    [--pref KEY=VALUE ...] [--theme DIR] [--exe NAME]
   rendertest.py compare BASELINE_DIR NEW_DIR
 
 `run` builds an isolated portable install under Build/RenderTest/root
@@ -162,7 +162,8 @@ def setup_theme(root, theme):
     return dst.name
 
 
-def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None):
+def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None,
+               exe_name="ITGmania.exe"):
     root = WORK / "root"
     for d in ("Themes", "Characters", "Save"):
         (root / d).mkdir(parents=True, exist_ok=True)
@@ -174,7 +175,7 @@ def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None):
     link(HERE / "Theme", root / "Themes" / "RenderTest")
     if os.name == "nt":
         link(REPO / "Program", root / "Program")
-        exe = root / "Program" / "ITGmania.exe"
+        exe = root / "Program" / exe_name
     elif sys.platform == "darwin":
         # The game uses the folder containing the .app as its root.
         app = root / "ITGmania.app"
@@ -216,7 +217,7 @@ def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None):
 def run(args):
     out = Path(args.out) if args.out else WORK / "runs" / time.strftime("%Y%m%d-%H%M%S")
     root, exe = setup_root(args.renderer, args.size, args.no_perf, args.pref,
-                           args.theme)
+                           args.theme, args.exe)
     print(f"Running {exe} ...")
     log = root / "Logs" / "log.txt"
     t = time.time()
@@ -398,6 +399,8 @@ def main():
                    help="extra [Options] preference, e.g. CelShadeModels=1")
     r.add_argument("--theme", metavar="DIR",
                    help="drive this theme instead of RenderTest (Simply Love)")
+    r.add_argument("--exe", default="ITGmania.exe",
+                   help="Windows: binary in Program/, e.g. ITGmania-debug.exe")
     c = sub.add_parser("compare")
     c.add_argument("baseline")
     c.add_argument("new")

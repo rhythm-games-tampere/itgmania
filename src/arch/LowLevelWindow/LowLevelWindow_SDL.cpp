@@ -49,6 +49,8 @@ static Preference<std::string> g_sSDLVideoDriver(
     "SDLVideoDriver", "x11,wayland");
 #endif
 
+extern Preference<int> g_iGLDebug;  // RageDisplay_OGL.cpp
+
 // Core 3.3; macOS gives 4.1 for any core request, and only forward
 // compatible ones.
 static void SetCoreProfileAttributes(bool bCore) {
@@ -56,10 +58,13 @@ static void SetCoreProfileAttributes(bool bCore) {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, bCore ? 3 : 1);
   SDL_GL_SetAttribute(
       SDL_GL_CONTEXT_PROFILE_MASK, bCore ? SDL_GL_CONTEXT_PROFILE_CORE : 0);
+  int iFlags = g_iGLDebug.Get() > 0 ? SDL_GL_CONTEXT_DEBUG_FLAG : 0;
 #if defined(MACOSX)
-  SDL_GL_SetAttribute(
-      SDL_GL_CONTEXT_FLAGS, bCore ? SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG : 0);
+  if (bCore) {
+    iFlags |= SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG;
+  }
 #endif
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, iFlags);
 }
 
 void RunOnMainThread(const std::function<void()>& f) {

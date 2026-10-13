@@ -47,6 +47,9 @@ extern bool g_actor_scopes;
 extern int64_t g_gl[kNumGLStats];
 // Bumped by Start: scopes opened in an earlier session don't pop this one's.
 extern uint32_t g_session;
+// GLDebug level while KHR_debug is on (set by the GL renderer): 1 = a debug
+// group per named section, 2 = also per actor Draw.
+extern int g_debug_groups;
 
 inline void CountGL(GLStat s, int n = 1) {
   if (g_active) {
@@ -61,17 +64,25 @@ void FrameEnd();
 
 bool Push(const void* key, Kind kind, FrameSlot slot = kSlotNone);
 void Pop();
+// Opens a GL debug group for the scope if g_debug_groups asks for one.
+bool PushGroup(const void* key, Kind kind, FrameSlot slot);
+void PopGroup();
 void AddDraw(int verts);
 const char* Intern(const std::string& s);
 
 struct Scope {
   bool pushed;
+  bool group;
   uint32_t session = g_session;
   Scope(const void* key, Kind kind, FrameSlot slot = kSlotNone)
       : pushed(
             g_active && key != nullptr && (kind == kNamed || g_actor_scopes) &&
-            Push(key, kind, slot)) {}
+            Push(key, kind, slot)),
+        group(g_debug_groups != 0 && key != nullptr && PushGroup(key, kind, slot)) {}
   ~Scope() {
+    if (group) {
+      PopGroup();
+    }
     if (pushed && session == g_session) {
       Pop();
     }
@@ -95,19 +106,25 @@ struct CommandScope {
 //   Sections s; s.Next("a"); ...; s.Next("b"); ...  (closed on scope exit)
 struct Sections {
   bool pushed = false;
+  bool group = false;
   uint32_t session = 0;
   void Next(const char* label) {
-    if (pushed && session == g_session) {
-      Pop();
-    }
+    Close();
     session = g_session;
     pushed = g_active && Push(label, kNamed);
+    group = g_debug_groups != 0 && PushGroup(label, kNamed, kSlotNone);
   }
-  ~Sections() {
+  void Close() {
+    if (group) {
+      PopGroup();
+      group = false;
+    }
     if (pushed && session == g_session) {
       Pop();
     }
+    pushed = false;
   }
+  ~Sections() { Close(); }
 };
 
 }  // namespace RenderProfiler

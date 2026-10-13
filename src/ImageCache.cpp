@@ -313,6 +313,7 @@ struct ImageTexture : public RageTexture {
 
     ASSERT(m_pImage != nullptr);
     m_uTexHandle = DISPLAY->CreateTexture(pf, m_pImage, false);
+    DISPLAY->LabelTexture(m_uTexHandle, GetID().filename);
 
     CreateFrameRects();
   }

@@ -27,6 +27,7 @@ void RageTextureRenderTarget::Create() {
    * CreateRenderTarget returns the actual resolution. */
   m_iTexHandle =
       DISPLAY->CreateRenderTarget(m_Param, m_iTextureWidth, m_iTextureHeight);
+  DISPLAY->LabelTexture(m_iTexHandle, GetID().filename);
 
   m_iSourceWidth = m_Param.iWidth;
   m_iSourceHeight = m_Param.iHeight;
