@@ -289,10 +289,12 @@ void RageDisplay::DrawLineStripInternal(
       quad(a0, a1, b1, b0);
     }
     if (fFeather > 0) {
-      quad(at(p1, nx * fOuter, ny * fOuter, true), a0, b0,
-           at(p2, nx * fOuter, ny * fOuter, true));
-      quad(a1, at(p1, -nx * fOuter, -ny * fOuter, true),
-           at(p2, -nx * fOuter, -ny * fOuter, true), b1);
+      quad(
+          at(p1, nx * fOuter, ny * fOuter, true), a0, b0,
+          at(p2, nx * fOuter, ny * fOuter, true));
+      quad(
+          a1, at(p1, -nx * fOuter, -ny * fOuter, true),
+          at(p2, -nx * fOuter, -ny * fOuter, true), b1);
     }
   }
 
@@ -314,8 +316,9 @@ void RageDisplay::DrawLineStripInternal(
         tris.insert(tris.end(), {center, i0, i1});
       }
       if (fFeather > 0) {
-        quad(i0, at(v[i], c0 * fOuter, s0 * fOuter, true),
-             at(v[i], c1 * fOuter, s1 * fOuter, true), i1);
+        quad(
+            i0, at(v[i], c0 * fOuter, s0 * fOuter, true),
+            at(v[i], c1 * fOuter, s1 * fOuter, true), i1);
       }
     }
   }

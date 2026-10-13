@@ -301,7 +301,8 @@ static std::vector<std::string> ConfiguredInputDrivers(
 void InputHandler::Create(
     const std::string& drivers_, std::vector<InputHandler*>& add) {
   const std::vector<std::string> driversToTry =
-      drivers_.empty() ? DefaultInputDrivers() : ConfiguredInputDrivers(drivers_);
+      drivers_.empty() ? DefaultInputDrivers()
+                       : ConfiguredInputDrivers(drivers_);
 
   if (driversToTry.empty()) {
     RageException::Throw("%s", INPUT_HANDLERS_EMPTY.GetValue().c_str());

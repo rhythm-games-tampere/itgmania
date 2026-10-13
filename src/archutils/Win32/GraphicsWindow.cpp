@@ -581,7 +581,8 @@ void GraphicsWindow::AdoptWindow(HWND hWnd) {
   CrashHandler::SetForegroundWindow(hWnd);
   if (hWnd != nullptr) {
     // Initialize registers this too, but isn't called for an adopted window.
-    g_iQueryCancelAutoPlayMessage = RegisterWindowMessage("QueryCancelAutoPlay");
+    g_iQueryCancelAutoPlayMessage =
+        RegisterWindowMessage("QueryCancelAutoPlay");
     g_AdoptedWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(
         hWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(AdoptedWndProc)));
   }
