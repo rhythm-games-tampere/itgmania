@@ -769,7 +769,7 @@ struct ProgramInfo {
   GLint emission, ambient, diffuse, specular, shininess;
   GLint light_ambient, light_diffuse, light_specular, light_position;
   GLint texture_width;  // YUYV422
-  bool lit;  // has any material or light uniform
+  bool lit;             // has any material or light uniform
   int last_state[8];
   int last_texture_width = -1;
   uint64_t modelview_serial = 0, projection_serial = 0, normal_serial = 0;
@@ -1385,8 +1385,10 @@ static void SetVertexArrays(
 
 // Uploads v to the stream VBO and points the arrays at it. Returns the base
 // vertex for the draw: the arrays point at the buffer's start where draws can
-// take a base vertex (GL 3.2), and are only re-pointed when the buffer
-// changes; otherwise they point at the data and this returns 0.
+// take a base vertex (GL 3.2) from the persistent ring, and are only
+// re-pointed when the buffer changes; otherwise they point at the data and
+// this returns 0. Not on the orphaned ring: sprites drew nothing that way on
+// macOS's 4.1 core context (Apple Software Renderer, CI).
 static GLint SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   // Core since 3.2, where drivers needn't list the extensions.
   static const bool bBGRA = GLAD_GL_VERSION_3_2 ||
@@ -1406,7 +1408,7 @@ static GLint SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
   const GLintptr at = StreamUpload(v, GLsizeiptr(iNumVerts) * stride, stride);
   GLint iBaseVertex = static_cast<GLint>(at / stride);
   GLintptr pointAt = 0;
-  if (!GLAD_GL_VERSION_3_2) {
+  if (!GLAD_GL_VERSION_3_2 || g_stream.mapped == nullptr) {
     iBaseVertex = 0;
     pointAt = at;
     g_cache.sprite_arrays = -1;
