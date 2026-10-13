@@ -511,6 +511,15 @@ void ScreenManager::Draw() {
     return;
   }
 
+  // Screen names are interned only while someone is listening.
+  RenderProfiler::Sections sections;
+  auto section = [&sections](const Screen* s) {
+    sections.Next(
+        RenderProfiler::g_active || RenderProfiler::g_debug_groups != 0
+            ? RenderProfiler::Intern("Screen " + s->GetName())
+            : nullptr);
+  };
+  sections.Next("SharedBGA");
   DISPLAY->CameraPushMatrix();
   DISPLAY->LoadMenuPerspective(
       0, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_CENTER_X, SCREEN_CENTER_Y);
@@ -519,12 +528,15 @@ void ScreenManager::Draw() {
 
   for (const LoadedScreen& screen :
        g_ScreenStack) {  // Draw all screens bottom to top
+    section(screen.m_pScreen);
     screen.m_pScreen->Draw();
   }
 
   for (Screen* overlayScreen : g_OverlayScreens) {
+    section(overlayScreen);
     overlayScreen->Draw();
   }
+  sections.Close();
 
   RenderProfiler::Scope prof(
       "Present (EndFrame)", RenderProfiler::kNamed,

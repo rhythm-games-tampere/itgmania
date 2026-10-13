@@ -77,6 +77,7 @@ class RageDisplay_Legacy : public RageDisplay {
   void LabelTexture(uintptr_t iTexHandle, const std::string& sName);
   bool PushDebugGroup(const char* sName);
   void PopDebugGroup();
+  int GpuMark();
   bool UseOffscreenRenderTarget();
   RageSurface* GetTexture(uintptr_t iTexture);
   RageTextureLock* CreateTextureLock();

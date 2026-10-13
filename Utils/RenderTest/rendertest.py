@@ -297,6 +297,11 @@ PERF_ROWS = [
     ("CPU work p99 ms", lambda p: p["cpu_work_ms"]["p99"]),
     ("update mean ms", lambda p: p["update_ms"]["mean"]),
     ("present mean ms", lambda p: p["present_ms"]["mean"]),
+    # Newer reports only; 0 for older runs.
+    ("  swap mean ms", lambda p: p.get("swap_ms", {}).get("mean", 0)),
+    ("  glFinish mean ms", lambda p: p.get("finish_ms", {}).get("mean", 0)),
+    ("GPU mean ms", lambda p: p.get("gpu_ms", {}).get("mean", 0)),
+    ("GPU p99 ms", lambda p: p.get("gpu_ms", {}).get("p99", 0)),
     ("frame mean ms", lambda p: p["frame_ms"]["mean"]),
 ]
 

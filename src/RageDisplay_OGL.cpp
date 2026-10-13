@@ -1300,6 +1300,59 @@ static bool g_bInFrame = false;
 static bool g_bCaptureFrame = false;
 static RageSurface* g_pCapturedFrame = nullptr;
 
+// RenderProfiler's GPU timing: GL_TIMESTAMP queries issued during the frame,
+// read right after EndFrame's glFinish, when they're already done.
+struct GpuMarks {
+  int generation = -1;
+  std::vector<GLuint> queries;
+  std::vector<uint64_t> times;
+  int used = 0;
+  bool open = false;    // between BeginFrame and the resolve in EndFrame
+  bool closed = false;  // the frame-end mark is in; no more marks
+};
+static GpuMarks g_marks;
+constexpr int kMaxGpuMarks = 256;
+
+int RageDisplay_Legacy::GpuMark() {
+  if (!g_marks.open || g_marks.closed || g_marks.used == kMaxGpuMarks) {
+    return -1;
+  }
+  glQueryCounter(g_marks.queries[g_marks.used], GL_TIMESTAMP);
+  return g_marks.used++;
+}
+
+static void OpenGpuMarks() {
+  g_marks.open = RenderProfiler::g_gpu &&
+                 (GLAD_GL_VERSION_3_3 || GLAD_GL_ARB_timer_query);
+  if (!g_marks.open) {
+    return;
+  }
+  if (g_marks.generation != g_iContextGeneration) {
+    // Old names belonged to a destroyed context.
+    g_marks.generation = g_iContextGeneration;
+    g_marks.queries.assign(kMaxGpuMarks, 0);
+    glGenQueries(kMaxGpuMarks, g_marks.queries.data());
+  }
+  g_marks.used = 0;
+  g_marks.closed = false;
+  DISPLAY->GpuMark();  // frame start
+}
+
+// After glFinish: no wait.
+static void ResolveGpuMarks() {
+  if (!g_marks.open) {
+    return;
+  }
+  g_marks.open = false;
+  g_marks.times.resize(g_marks.used);
+  for (int i = 0; i < g_marks.used; ++i) {
+    GLuint64 t = 0;
+    glGetQueryObjectui64v(g_marks.queries[i], GL_QUERY_RESULT, &t);
+    g_marks.times[i] = t;
+  }
+  RenderProfiler::GpuResolved(g_marks.times.data(), g_marks.used);
+}
+
 bool RageDisplay_Legacy::PushDebugGroup(const char* sName) {
   if (!g_bGLDebugOutput || !g_bInFrame) {
     return false;
@@ -1339,11 +1392,17 @@ bool RageDisplay_Legacy::BeginFrame() {
   }
 
   g_bInFrame = beginFrame;
+  if (beginFrame) {
+    OpenGpuMarks();
+  }
   return beginFrame;
 }
 
 void RageDisplay_Legacy::EndFrame() {
+  // Children of ScreenManager's "Present (EndFrame)" scope.
+  RenderProfiler::Sections prof;
   if (UseOffscreenRenderTarget()) {
+    prof.Next("offscreen blit");
     offscreenRenderTarget->FinishRenderingTo();
     Sprite fullscreenSprite;
     // We've got a hold of this, don't want sprite deleting it when
@@ -1368,16 +1427,22 @@ void RageDisplay_Legacy::EndFrame() {
     g_pCapturedFrame = ReadWindowPixels(
         GL_BACK, nullptr, GetActualVideoModeParams().width,
         GetActualVideoModeParams().height);
+    g_marks.open = false;
     return;
   }
 
   if (g_bScreenshotBackBuffer && !UseOffscreenRenderTarget()) {
+    prof.Next("screenshot readback");
     g_pLastFrame = ReadWindowPixels(
         GL_BACK, g_pLastFrame, GetActualVideoModeParams().width,
         GetActualVideoModeParams().height);
   }
 
+  GpuMark();  // frame end; sections still open lose their GPU time
+  g_marks.closed = true;
+  prof.Next("frame limiter", RenderProfiler::kSlotLimiter);
   FrameLimitBeforeVsync();
+  prof.Next("SwapBuffers", RenderProfiler::kSlotSwap);
   g_pWind->SwapBuffers();
   FrameLimitAfterVsync();
 
@@ -1390,8 +1455,11 @@ void RageDisplay_Legacy::EndFrame() {
   // glFinish() blocks. We WANT to block. Why? This puts the engine state
   // reflected by the next frame as close as possible to the on-screen
   // appearance of that frame.
+  prof.Next("glFinish", RenderProfiler::kSlotFinish);
   glFinish();
+  ResolveGpuMarks();
 
+  prof.Next("window Update");
   g_pWind->Update();
 
   RageDisplay::EndFrame();

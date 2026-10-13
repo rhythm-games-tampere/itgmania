@@ -276,6 +276,10 @@ class RageDisplay {
   virtual void LabelTexture(uintptr_t /* iTexHandle */, const std::string&) {}
   virtual bool PushDebugGroup(const char* /* sName */) { return false; }
   virtual void PopDebugGroup() {}
+  // RenderProfiler: records a GPU timestamp and returns its index in this
+  // frame, or -1. EndFrame hands the frame's timestamps to
+  // RenderProfiler::GpuResolved.
+  virtual int GpuMark() { return -1; }
   /* Return an object to lock pixels for streaming. If not supported, returns
    * nullptr. Delete the object normally. */
   virtual RageTextureLock* CreateTextureLock() { return nullptr; }

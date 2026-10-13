@@ -33,6 +33,7 @@ bool g_actor_scopes = false;
 int64_t g_gl[kNumGLStats];
 uint32_t g_session = 0;
 int g_debug_groups = 0;
+bool g_gpu = false;
 
 namespace {
 
@@ -54,6 +55,7 @@ struct Node {
   std::string path;  // static actor lineage, for actor nodes
   int64_t incl_ns = 0;
   int64_t child_ns = 0;
+  int64_t gpu_ns = 0;
   int64_t calls = 0;
   int64_t draws = 0;
   int64_t verts = 0;
@@ -61,7 +63,7 @@ struct Node {
 };
 
 struct Frame {
-  int64_t total, slot[kNumSlots];
+  int64_t total, slot[kNumSlots], gpu;
   int64_t draws, verts, scopes;
 };
 
@@ -69,7 +71,14 @@ struct Open {
   int node;
   int64_t start;
   FrameSlot slot;
+  int gpu_begin;  // GpuMark index, or -1
 };
+
+// A section's GPU marks, waiting for EndFrame's resolve.
+struct GpuSpan {
+  int node, begin, end;
+};
+std::vector<GpuSpan> g_gpu_spans;
 
 std::vector<Node> g_nodes;
 std::unordered_map<uint64_t, int> g_roots;
@@ -199,10 +208,13 @@ void WriteTree(
   const Node& n = g_nodes[idx];
   double incl = n.incl_ns / 1e6 / nframes;
   double excl = (n.incl_ns - n.child_ns) / 1e6 / nframes;
+  const std::string gpu =
+      n.gpu_ns > 0 ? ssprintf("%8.3f", n.gpu_ns / 1e6 / nframes) : "";
   out += ssprintf(
-      "%8.3f %8.3f %8.1f %6.1f %8.0f  %s%s%s\n", incl, excl, n.calls / nframes,
-      n.draws / nframes, n.verts / nframes, std::string(depth * 2, ' ').c_str(),
-      n.kind == kCommand ? "[cmd] " : "", n.label.c_str());
+      "%8.3f %8.3f %8s %8.1f %6.1f %8.0f  %s%s%s\n", incl, excl, gpu.c_str(),
+      n.calls / nframes, n.draws / nframes, n.verts / nframes,
+      std::string(depth * 2, ' ').c_str(), n.kind == kCommand ? "[cmd] " : "",
+      n.label.c_str());
   std::vector<int> kids;
   for (auto& c : n.children) {
     kids.push_back(c.second);
@@ -223,8 +235,8 @@ void WriteTree(
   }
   if (hidden) {
     out += ssprintf(
-        "%8.3f %8s %8s %6s %8s  %s(%d smaller children)\n", hidden_ms, "", "",
-        "", "", std::string((depth + 1) * 2, ' ').c_str(), hidden);
+        "%8.3f %8s %8s %8s %6s %8s  %s(%d smaller children)\n", hidden_ms, "",
+        "", "", "", "", std::string((depth + 1) * 2, ' ').c_str(), hidden);
   }
 }
 
@@ -270,7 +282,7 @@ void WriteReport() {
   }
 
   // Per-frame stats.
-  std::vector<int64_t> total, slots[kNumSlots], work;
+  std::vector<int64_t> total, slots[kNumSlots], work, gpu;
   int64_t draws = 0, verts = 0, scopes = 0;
   for (const Frame& f : g_frames) {
     total.push_back(f.total);
@@ -278,6 +290,7 @@ void WriteReport() {
       slots[s].push_back(f.slot[s]);
     }
     work.push_back(f.total - f.slot[kSlotPresent]);
+    gpu.push_back(f.gpu);
     draws += f.draws;
     verts += f.verts;
     scopes += f.scopes;
@@ -318,10 +331,17 @@ void WriteReport() {
   row("update", "update", slots[kSlotUpdate]);
   row("draw (incl present)", "draw", slots[kSlotDraw]);
   row("present/EndFrame", "present", slots[kSlotPresent]);
+  row("  frame limiter", "limiter", slots[kSlotLimiter]);
+  row("  SwapBuffers", "swap", slots[kSlotSwap]);
+  row("  glFinish", "finish", slots[kSlotFinish]);
   row("CPU work (no pres.)", "cpu_work", work);
+  if (g_gpu) {
+    row("GPU (frame)", "gpu", gpu);
+  }
   out +=
-      "Note: present/EndFrame includes vsync wait and any GPU stall; "
-      "GPU-bound work shows up there.\n";
+      "Note: SwapBuffers is mostly the vsync wait; glFinish is the GPU "
+      "finishing the frame. GPU is BeginFrame to the last draw, from timer "
+      "queries.\n";
 
   static const char* kGLNames[kNumGLStats] = {
       "matrix load", "vertex setup", "texture",  "blend",        "depth",
@@ -359,8 +379,8 @@ void WriteReport() {
 
   // Call tree.
   out +=
-      "\n=== Call tree (per-frame averages; incl/excl in ms) ===\n"
-      "    incl     excl    calls  draws    verts  node\n";
+      "\n=== Call tree (per-frame averages; incl/excl/gpu in ms) ===\n"
+      "    incl     excl      gpu    calls  draws    verts  node\n";
   std::vector<int> roots;
   for (size_t i = 0; i < g_nodes.size(); ++i) {
     if (g_nodes[i].parent < 0) {
@@ -447,6 +467,8 @@ void Start() {
   }
   ++g_session;
   g_actor_scopes = g_iMode.Get() == 1;
+  // Mode 1's inflated CPU times make GPU numbers meaningless next to them.
+  g_gpu = g_iMode.Get() >= 2;
   std::fill(std::begin(g_gl), std::end(g_gl), 0);
   g_nodes.clear();
   g_roots.clear();
@@ -464,6 +486,7 @@ void Stop() {
   g_active = false;
   g_stack.clear();
   WriteReport();
+  g_gpu = false;
   g_nodes.clear();
   g_roots.clear();
   g_frames.clear();
@@ -474,6 +497,7 @@ void FrameBegin() {
     return;
   }
   g_cur = Frame{};
+  g_gpu_spans.clear();
   g_frame_start = NowNs();
   g_in_frame = true;
 }
@@ -512,7 +536,8 @@ bool Push(const void* key, Kind kind, FrameSlot slot) {
     (parent < 0 ? g_roots : g_nodes[parent].children).emplace(ck, idx);
   }
   ++g_cur.scopes;
-  g_stack.push_back({idx, NowNs(), slot});
+  const int gpu_begin = g_gpu && kind == kNamed ? DISPLAY->GpuMark() : -1;
+  g_stack.push_back({idx, NowNs(), slot, gpu_begin});
   return true;
 }
 
@@ -532,6 +557,24 @@ void Pop() {
   if (o.slot != kSlotNone) {
     g_cur.slot[o.slot] += dt;
   }
+  if (o.gpu_begin >= 0) {
+    const int end = DISPLAY->GpuMark();
+    if (end >= 0) {
+      g_gpu_spans.push_back({o.node, o.gpu_begin, end});
+    }
+  }
+}
+
+void GpuResolved(const uint64_t* times, int n) {
+  if (!g_active || n < 2) {
+    return;
+  }
+  for (const GpuSpan& span : g_gpu_spans) {
+    g_nodes[span.node].gpu_ns +=
+        static_cast<int64_t>(times[span.end] - times[span.begin]);
+  }
+  g_gpu_spans.clear();
+  g_cur.gpu = static_cast<int64_t>(times[n - 1] - times[0]);
 }
 
 void AddDraw(int verts) {
@@ -548,6 +591,10 @@ void AddDraw(int verts) {
 }
 
 bool PushGroup(const void* key, Kind kind, FrameSlot slot) {
+  // The renderer's Init draws a frame before DISPLAY is set.
+  if (DISPLAY == nullptr) {
+    return false;
+  }
   // Frame slots (Update, Draw, Present) span the present; leave them out.
   if (kind == kNamed && slot == kSlotNone) {
     return DISPLAY->PushDebugGroup(static_cast<const char*>(key));

@@ -24,6 +24,10 @@ enum FrameSlot {
   kSlotUpdate,
   kSlotDraw,
   kSlotPresent,
+  // Inside Present: where its time goes.
+  kSlotLimiter,  // FrameLimitPercent's sleep
+  kSlotSwap,     // SwapBuffers: vsync wait, or the driver's queue being full
+  kSlotFinish,   // glFinish: the GPU catching up with the frame
   kNumSlots
 };
 
@@ -50,6 +54,8 @@ extern uint32_t g_session;
 // GLDebug level while KHR_debug is on (set by the GL renderer): 1 = a debug
 // group per named section, 2 = also per actor Draw.
 extern int g_debug_groups;
+// Time named Draw sections on the GPU too (modes 2 and 3).
+extern bool g_gpu;
 
 inline void CountGL(GLStat s, int n = 1) {
   if (g_active) {
@@ -67,6 +73,8 @@ void Pop();
 // Opens a GL debug group for the scope if g_debug_groups asks for one.
 bool PushGroup(const void* key, Kind kind, FrameSlot slot);
 void PopGroup();
+// The frame's GPU timestamps (ns), indexed by RageDisplay::GpuMark's return.
+void GpuResolved(const uint64_t* times, int n);
 void AddDraw(int verts);
 const char* Intern(const std::string& s);
 
@@ -108,11 +116,14 @@ struct Sections {
   bool pushed = false;
   bool group = false;
   uint32_t session = 0;
-  void Next(const char* label) {
+  void Next(const char* label, FrameSlot slot = kSlotNone) {
     Close();
     session = g_session;
-    pushed = g_active && Push(label, kNamed);
-    group = g_debug_groups != 0 && PushGroup(label, kNamed, kSlotNone);
+    if (label == nullptr) {
+      return;
+    }
+    pushed = g_active && Push(label, kNamed, slot);
+    group = g_debug_groups != 0 && PushGroup(label, kNamed, slot);
   }
   void Close() {
     if (group) {
