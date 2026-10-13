@@ -46,10 +46,12 @@ int GLAD_GL_ARB_buffer_storage = 0;
 int GLAD_GL_ARB_framebuffer_object = 0;
 int GLAD_GL_ARB_sync = 0;
 int GLAD_GL_ARB_texture_float = 0;
+int GLAD_GL_ARB_timer_query = 0;
 int GLAD_GL_ARB_vertex_array_bgra = 0;
 int GLAD_GL_EXT_bgra = 0;
 int GLAD_GL_EXT_texture_filter_anisotropic = 0;
 int GLAD_GL_EXT_vertex_array_bgra = 0;
+int GLAD_GL_KHR_debug = 0;
 
 
 
@@ -2249,6 +2251,26 @@ static void glad_gl_load_GL_ARB_sync( GLADuserptrloadfunc load, void* userptr) {
     glad_glIsSync = (PFNGLISSYNCPROC) load(userptr, "glIsSync");
     glad_glWaitSync = (PFNGLWAITSYNCPROC) load(userptr, "glWaitSync");
 }
+static void glad_gl_load_GL_ARB_timer_query( GLADuserptrloadfunc load, void* userptr) {
+    if(!GLAD_GL_ARB_timer_query) return;
+    glad_glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC) load(userptr, "glGetQueryObjecti64v");
+    glad_glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC) load(userptr, "glGetQueryObjectui64v");
+    glad_glQueryCounter = (PFNGLQUERYCOUNTERPROC) load(userptr, "glQueryCounter");
+}
+static void glad_gl_load_GL_KHR_debug( GLADuserptrloadfunc load, void* userptr) {
+    if(!GLAD_GL_KHR_debug) return;
+    glad_glDebugMessageCallback = (PFNGLDEBUGMESSAGECALLBACKPROC) load(userptr, "glDebugMessageCallback");
+    glad_glDebugMessageControl = (PFNGLDEBUGMESSAGECONTROLPROC) load(userptr, "glDebugMessageControl");
+    glad_glDebugMessageInsert = (PFNGLDEBUGMESSAGEINSERTPROC) load(userptr, "glDebugMessageInsert");
+    glad_glGetDebugMessageLog = (PFNGLGETDEBUGMESSAGELOGPROC) load(userptr, "glGetDebugMessageLog");
+    glad_glGetObjectLabel = (PFNGLGETOBJECTLABELPROC) load(userptr, "glGetObjectLabel");
+    glad_glGetObjectPtrLabel = (PFNGLGETOBJECTPTRLABELPROC) load(userptr, "glGetObjectPtrLabel");
+    glad_glGetPointerv = (PFNGLGETPOINTERVPROC) load(userptr, "glGetPointerv");
+    glad_glObjectLabel = (PFNGLOBJECTLABELPROC) load(userptr, "glObjectLabel");
+    glad_glObjectPtrLabel = (PFNGLOBJECTPTRLABELPROC) load(userptr, "glObjectPtrLabel");
+    glad_glPopDebugGroup = (PFNGLPOPDEBUGGROUPPROC) load(userptr, "glPopDebugGroup");
+    glad_glPushDebugGroup = (PFNGLPUSHDEBUGGROUPPROC) load(userptr, "glPushDebugGroup");
+}
 
 
 
@@ -2348,10 +2370,12 @@ static int glad_gl_find_extensions_gl(void) {
     GLAD_GL_ARB_framebuffer_object = glad_gl_has_extension(exts, exts_i, "GL_ARB_framebuffer_object");
     GLAD_GL_ARB_sync = glad_gl_has_extension(exts, exts_i, "GL_ARB_sync");
     GLAD_GL_ARB_texture_float = glad_gl_has_extension(exts, exts_i, "GL_ARB_texture_float");
+    GLAD_GL_ARB_timer_query = glad_gl_has_extension(exts, exts_i, "GL_ARB_timer_query");
     GLAD_GL_ARB_vertex_array_bgra = glad_gl_has_extension(exts, exts_i, "GL_ARB_vertex_array_bgra");
     GLAD_GL_EXT_bgra = glad_gl_has_extension(exts, exts_i, "GL_EXT_bgra");
     GLAD_GL_EXT_texture_filter_anisotropic = glad_gl_has_extension(exts, exts_i, "GL_EXT_texture_filter_anisotropic");
     GLAD_GL_EXT_vertex_array_bgra = glad_gl_has_extension(exts, exts_i, "GL_EXT_vertex_array_bgra");
+    GLAD_GL_KHR_debug = glad_gl_has_extension(exts, exts_i, "GL_KHR_debug");
 
     glad_gl_free_extensions(exts_i);
 
@@ -2436,6 +2460,8 @@ int gladLoadGLUserPtr( GLADuserptrloadfunc load, void *userptr) {
     glad_gl_load_GL_ARB_buffer_storage(load, userptr);
     glad_gl_load_GL_ARB_framebuffer_object(load, userptr);
     glad_gl_load_GL_ARB_sync(load, userptr);
+    glad_gl_load_GL_ARB_timer_query(load, userptr);
+    glad_gl_load_GL_KHR_debug(load, userptr);
 
 
 

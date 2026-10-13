@@ -28,9 +28,23 @@
         error == GL_NO_ERROR, RageDisplay_Legacy_Helpers::GLToString(error)); \
   }
 
-#if defined(DEBUG) || !defined(GL_GET_ERROR_IS_SLOW)
-#define DebugFlushGLErrors() FlushGLErrors()
-#define DebugAssertNoGLError() AssertNoGLError()
+/* glGetError syncs threaded drivers (mesa_glthread), so release builds don't
+ * check. Debug builds don't either while the KHR_debug callback is installed:
+ * it reports errors on the offending call. */
+#if defined(DEBUG)
+extern bool g_bGLDebugOutput;
+#define DebugFlushGLErrors()  \
+  do {                        \
+    if (!g_bGLDebugOutput) {  \
+      FlushGLErrors();        \
+    }                         \
+  } while (0)
+#define DebugAssertNoGLError() \
+  do {                         \
+    if (!g_bGLDebugOutput) {   \
+      AssertNoGLError();       \
+    }                          \
+  } while (0)
 #else
 #define DebugFlushGLErrors()
 #define DebugAssertNoGLError()

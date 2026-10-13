@@ -55,6 +55,8 @@ using namespace RageDisplay_Legacy_Helpers;
 //
 
 static bool g_bReversePackedPixelsWorks = true;
+// The KHR_debug callback is installed (GLDebug); see RageDisplay_OGL.h.
+bool g_bGLDebugOutput = false;
 
 /* OpenGL system information that generally doesn't change at runtime. */
 
