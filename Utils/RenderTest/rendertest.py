@@ -5,6 +5,7 @@
                     [--pref KEY=VALUE ...] [--theme DIR] [--exe NAME]
                     [--profiler-mode 1|2|3]
   rendertest.py compare BASELINE_DIR NEW_DIR
+  rendertest.py spikes [FILE ...] [--json] [--selftest]
 
 `run` builds an isolated portable install under Build/RenderTest/root
 (junctions to this repo's Program, Data, NoteSkins, Songs and _fallback, plus
@@ -28,6 +29,11 @@ two runs of the same build should produce identical images.
 written to NEW_DIR/diff), texture sizes and the perf summary. It exits 1 if
 any shot differs by more than --tolerance on more than --max-fraction of its
 pixels.
+
+`spikes` summarizes RenderProfiler=3 records (FrameSpikes-*.jsonl): causes,
+the sections, actors and events behind them, and spikes per screen. With no
+FILE it reads the newest one in the game's Logs folder (this repo's when it
+is a portable install, else the user data folder).
 
 Needs Python 3.8+ and Pillow. Close any running ITGmania first.
 """
@@ -393,6 +399,131 @@ def compare(args):
     return 1 if failed else 0
 
 
+def spike_logs():
+    """The newest FrameSpikes-*.jsonl among the game's Logs folders."""
+    dirs = [REPO / "Logs", Path(os.environ.get("APPDATA", "")) / "ITGmania" / "Logs",
+            Path.home() / ".itgmania" / "Logs"]
+    found = [p for d in dirs if d.is_dir() for p in d.glob("FrameSpikes-*.jsonl")]
+    return [max(found, key=lambda p: p.stat().st_mtime)] if found else []
+
+
+def song_of(path):
+    """The song in the RenderProfile report written with these records."""
+    stamp = path.stem.split("-", 1)[1] if "-" in path.stem else ""
+    report = path.with_name(f"RenderProfile-{stamp}.txt")
+    if report.exists():
+        for line in report.read_text(errors="replace").splitlines():
+            if line.startswith("Song: "):
+                return line[6:]
+    return "?"
+
+
+def summarize_spikes(records):
+    """Ranks what spike frames spent their excess time on. Warmup and
+    unfocused spikes are counted but not ranked."""
+    def ranked(d):
+        return sorted(([k, v[0], round(v[1], 3)] for k, v in d.items()),
+                      key=lambda r: -r[2])
+
+    def add(d, key, ms):
+        v = d.setdefault(key, [0, 0.0])
+        v[0] += 1
+        v[1] += ms
+
+    causes, sections, actors, events, screens = {}, {}, {}, {}, {}
+    out = {"spikes": len(records), "warmup": 0, "unfocused": 0}
+    for r in records:
+        if r.get("unfocused"):
+            out["unfocused"] += 1
+            continue
+        if r.get("warmup"):
+            out["warmup"] += 1
+            continue
+        excess = r["total_ms"] - r["median_ms"]["total_ms"]
+        add(causes, r["cause"], excess)
+        add(screens, f'{r.get("song", "?")} / {r["screen"]}', excess)
+        for s in r["sections"]:
+            if s["ms"] > s["avg_ms"]:
+                add(sections, s["name"], s["ms"] - s["avg_ms"])
+        for a in r["slow_actors"]:
+            add(actors, f'{a["kind"]} {a["actor"]}  [{a["path"]}]', a["excl_ms"])
+        for e in r["events"]:
+            if e["depth"] == 0:
+                add(events, f'{e["type"]}: {e["name"]}', e["ms"])
+    out["ranked"] = out["spikes"] - out["warmup"] - out["unfocused"]
+    for name, d in (("causes", causes), ("sections", sections),
+                    ("slow_actors", actors), ("events", events),
+                    ("screens", screens)):
+        out[name] = ranked(d)
+    return out
+
+
+def print_spike_summary(s):
+    print(f"{s['spikes']} spikes: {s['ranked']} ranked, {s['warmup']} warmup, "
+          f"{s['unfocused']} unfocused")
+    for title, key, unit in (
+            ("Causes", "causes", "excess ms"),
+            ("Sections over their average", "sections", "excess ms"),
+            ("Slow actors", "slow_actors", "exclusive ms"),
+            ("Top-level events", "events", "ms"),
+            ("Song / screen", "screens", "excess ms")):
+        if not s[key]:
+            continue
+        print(f"\n{title} (count, total {unit}):")
+        for name, count, ms in s[key][:20]:
+            print(f"  {count:5} {ms:10.3f}  {name}")
+
+
+SPIKE_FIXTURE = [
+    {"screen": "ScreenGameplay", "total_ms": 30, "cause": "events",
+     "median_ms": {"total_ms": 10},
+     "sections": [{"name": "Update", "ms": 25, "avg_ms": 5}],
+     "slow_actors": [{"kind": "update", "actor": "BitmapText", "path": "a/b",
+                      "excl_ms": 4}],
+     "events": [{"type": "texture load", "name": "x.png", "depth": 0, "ms": 18},
+                {"type": "file open", "name": "x.png", "depth": 1, "ms": 2}]},
+    {"screen": "ScreenGameplay", "total_ms": 20, "cause": "gpu",
+     "median_ms": {"total_ms": 10}, "sections": [], "slow_actors": [],
+     "events": []},
+    {"screen": "ScreenGameplay", "total_ms": 50, "cause": "update",
+     "warmup": True, "median_ms": {"total_ms": 10}, "sections": [],
+     "slow_actors": [], "events": []},
+]
+
+
+def spikes_selftest():
+    s = summarize_spikes(SPIKE_FIXTURE)
+    assert (s["spikes"], s["ranked"], s["warmup"]) == (3, 2, 1), s
+    assert s["causes"] == [["events", 1, 20], ["gpu", 1, 10]], s["causes"]
+    assert s["sections"] == [["Update", 1, 20]], s["sections"]
+    assert s["events"] == [["texture load: x.png", 1, 18]], s["events"]
+    assert s["slow_actors"][0][0] == "update BitmapText  [a/b]"
+    print("spikes selftest ok")
+    return 0
+
+
+def spikes(args):
+    if args.selftest:
+        return spikes_selftest()
+    paths = [Path(p) for p in args.files] or spike_logs()
+    if not paths:
+        print("No FrameSpikes-*.jsonl found; play with RenderProfiler=3.")
+        return 1
+    records = []
+    for path in paths:
+        song = song_of(path)
+        for line in path.read_text(errors="replace").splitlines():
+            if line.strip():
+                records.append(dict(json.loads(line), song=song))
+    summary = summarize_spikes(records)
+    if args.json:
+        print(json.dumps(summary, indent=1))
+    else:
+        print("Files: " + ", ".join(str(p) for p in paths))
+        print_spike_summary(summary)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -420,8 +551,12 @@ def main():
                    help="per-channel difference (0-255) still counted as equal")
     c.add_argument("--max-fraction", type=float, default=0.0,
                    help="fraction of pixels allowed over tolerance")
+    s = sub.add_parser("spikes")
+    s.add_argument("files", nargs="*", help="FrameSpikes-*.jsonl files")
+    s.add_argument("--json", action="store_true", help="machine-readable")
+    s.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
-    sys.exit(run(args) if args.cmd == "run" else compare(args))
+    sys.exit({"run": run, "compare": compare, "spikes": spikes}[args.cmd](args))
 
 
 if __name__ == "__main__":
