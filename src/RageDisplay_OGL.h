@@ -33,11 +33,11 @@
  * it reports errors on the offending call. */
 #if defined(DEBUG)
 extern bool g_bGLDebugOutput;
-#define DebugFlushGLErrors()  \
-  do {                        \
-    if (!g_bGLDebugOutput) {  \
-      FlushGLErrors();        \
-    }                         \
+#define DebugFlushGLErrors() \
+  do {                       \
+    if (!g_bGLDebugOutput) { \
+      FlushGLErrors();       \
+    }                        \
   } while (0)
 #define DebugAssertNoGLError() \
   do {                         \

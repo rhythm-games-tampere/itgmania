@@ -1322,8 +1322,8 @@ int RageDisplay_Legacy::GpuMark() {
 }
 
 static void OpenGpuMarks() {
-  g_marks.open = RenderProfiler::g_gpu &&
-                 (GLAD_GL_VERSION_3_3 || GLAD_GL_ARB_timer_query);
+  g_marks.open =
+      RenderProfiler::g_gpu && (GLAD_GL_VERSION_3_3 || GLAD_GL_ARB_timer_query);
   if (!g_marks.open) {
     return;
   }

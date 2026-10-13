@@ -15,8 +15,10 @@
 
 #if defined(_WIN32)
 #include <intrin.h>
+// clang-format off: psapi.h needs windows.h first
 #include <windows.h>
 #include <psapi.h>
+// clang-format on
 #else
 #include <sys/resource.h>
 #include <time.h>
@@ -26,7 +28,6 @@
 #endif
 
 #include "Actor.h"
-#include "arch/ArchHooks/ArchHooks.h"
 #include "GameState.h"
 #include "LuaManager.h"
 #include "MessageManager.h"
@@ -42,6 +43,7 @@
 #include "Song.h"
 #include "SongOptions.h"
 #include "Steps.h"
+#include "arch/ArchHooks/ArchHooks.h"
 
 namespace RenderProfiler {
 
@@ -167,9 +169,9 @@ enum Part {
   kPartEvents,
   kNumParts
 };
-const char* const kPartNames[kNumParts] = {
-    "update", "draw_cpu", "gpu",     "swap",
-    "finish", "limiter",  "blocked", "events"};
+const char* const kPartNames[kNumParts] = {"update",  "draw_cpu", "gpu",
+                                           "swap",    "finish",   "limiter",
+                                           "blocked", "events"};
 
 struct Summary {
   int64_t total;
@@ -223,7 +225,7 @@ bool g_vsync = false;
 OsCounters g_os_prev;
 int g_lua_prev_kb = 0;
 int64_t g_tick0 = 0, g_ns0 = 0;  // Ticks and NowNs at Start
-int64_t g_slow_ticks = 0;          // g_slow_ns in Ticks, set per frame
+int64_t g_slow_ticks = 0;        // g_slow_ns in Ticks, set per frame
 
 std::vector<std::string> g_spike_lines;
 int g_spikes_dropped = 0;
@@ -398,9 +400,8 @@ void RecordSpike(
   for (const SectionTime& st : g_sf.sections) {
     secs.push_back(&st);
   }
-  std::sort(secs.begin(), secs.end(), [](auto* a, auto* b) {
-    return a->ns > b->ns;
-  });
+  std::sort(
+      secs.begin(), secs.end(), [](auto* a, auto* b) { return a->ns > b->ns; });
   out += ", \"sections\": [";
   for (size_t i = 0; i < std::min<size_t>(16, secs.size()); ++i) {
     const Node& n = g_nodes[secs[i]->node];
@@ -1063,8 +1064,7 @@ void Pop() {
   int sec = -1;
   if (g_spikes && n.kind == kNamed) {
     sec = static_cast<int>(g_sf.sections.size());
-    g_sf.sections.push_back(
-        {o.node, static_cast<int>(g_stack.size()), dt, 0});
+    g_sf.sections.push_back({o.node, static_cast<int>(g_stack.size()), dt, 0});
   }
   if (o.gpu_begin >= 0) {
     const int end = DISPLAY->GpuMark();
@@ -1100,8 +1100,8 @@ void SlowEnd() {
   const Actor* a = static_cast<const Actor*>(o.actor);
   const double per_ns = TicksPerNs();
   g_sf.slow.push_back(
-      {a ? ActorLabel(a) : "<destroyed during the call>",
-       a ? ActorPath(a) : "", o.kind, static_cast<int64_t>(excl / per_ns),
+      {a ? ActorLabel(a) : "<destroyed during the call>", a ? ActorPath(a) : "",
+       o.kind, static_cast<int64_t>(excl / per_ns),
        static_cast<int64_t>(dt / per_ns)});
 }
 
