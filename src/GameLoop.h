@@ -11,8 +11,6 @@ void SetUpdateRate(float fUpdateRate);
 float GetUpdateRate();
 void ChangeTheme(const std::string& sNewTheme);
 void ChangeGame(const std::string& new_game, const std::string& new_theme = "");
-void StartConcurrentRendering();
-void FinishConcurrentRendering();
 void ResetInputIdleTimer();
 // Increments once per UpdateAllButDraw; for "once per frame" guards.
 uint64_t GetFrameNumber();

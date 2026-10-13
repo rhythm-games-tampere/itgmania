@@ -51,11 +51,6 @@ class LowLevelWindow_SDL : public LowLevelWindow {
 
   bool SupportsFullscreenBorderlessWindow() const { return true; }
 
-  // ponytail: no threaded rendering. The X11 way (the loading thread's
-  // context moves to another window) needs a second window here, and two
-  // contexts on one EGL surface fail. Add it if concurrent rendering is ever
-  // used again (nothing calls GameLoop::StartConcurrentRendering).
-
  private:
   std::string SetVideoMode(const VideoModeParams& p, bool& bNewDeviceOut);
   static void GetDisplaySpecsOnMainThread(DisplaySpecs& out);
@@ -67,6 +62,7 @@ class LowLevelWindow_SDL : public LowLevelWindow {
   bool m_bNewContextPending = false;
   bool m_bResized = false;
   int m_iCursorShown = -1;  // -1 unknown
+  std::string m_sIconFile;  // the icon last set
   std::string m_sInitError;
   ActualVideoModeParams m_Params;
 };

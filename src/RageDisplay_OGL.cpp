@@ -1,7 +1,6 @@
 #include "RageDisplay_OGL.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -242,8 +241,7 @@ static void FixLittleEndian() {
 /* Shadow copy of the GL state we set per draw, so redundant calls are skipped.
  * Mesa revalidates state on the CPU after every state call, changed or not, and
  * glGet* stalls mesa_glthread. -1 / false means unknown: the next set always
- * reaches GL. thread_local because concurrent rendering draws from a second
- * context on another thread. g_cache is invalidated on frame start, render
+ * reaches GL. g_cache is invalidated on frame start, render
  * target and resolution changes; g_tex_params, which describes the texture
  * objects, only on new contexts and filtering preference changes. */
 namespace {
@@ -275,27 +273,21 @@ struct GLStateCache {
   }
 };
 
-// Per texture object: filter/wrap last set, and whether it has mip levels.
+// Per texture object: filter/wrap last set, whether it has mip levels, and
+// its width (for the YUYV422 shader).
 struct TexParams {
   int filter = -1;
   int wrap = -1;
   int mipmapped = -1;
+  int width = -1;
 };
 
-thread_local GLStateCache g_cache = [] {
+GLStateCache g_cache = [] {
   GLStateCache c;
   c.Invalidate();
   return c;
 }();
-// Shared like the texture objects it describes. While a second thread renders
-// (concurrent rendering) both threads touch textures, so it's off and
-// cleared afterwards; TexParamsFor returns null then.
 std::unordered_map<GLuint, TexParams> g_tex_params;
-std::atomic<bool> g_bTexParamsOff{false};
-
-TexParams* TexParamsFor(GLuint id) {
-  return g_bTexParamsOff ? nullptr : &g_tex_params[id];
-}
 
 void InvalidateGLStateCache() { g_cache.Invalidate(); }
 
@@ -383,8 +375,7 @@ struct PatternIndices {
   int pieces = 0;
 };
 
-/* GPU buffers for immediate (sprite) draws. thread_local like g_cache: each
- * rendering thread has its own context, write offset and buffers. */
+/* GPU buffers for immediate (sprite) draws, per context. */
 struct StreamBuffers {
   int generation = -1;
   // Persistently mapped ring (ARB_buffer_storage), split into quarters with a
@@ -401,7 +392,7 @@ struct StreamBuffers {
   GLsizeiptr dynamic_offset = 0;  // kStreamRingSize: orphan before writing
   PatternIndices quads, quad_strip, symmetric_strip;
 };
-thread_local StreamBuffers g_stream;
+StreamBuffers g_stream;
 constexpr GLsizeiptr kStreamRingSize = 4 << 20;
 
 void CheckStreamGeneration() {
@@ -495,7 +486,7 @@ GLintptr StreamUpload(const void* data, GLsizeiptr size, GLsizeiptr align) {
 
 /* The fixed-function state the setters record and the shaders implement. It
  * is never "unknown" like g_cache, so draws read it without glGet.
- * thread_local and reset to GL's defaults per context, like g_stream. */
+ * Reset to GL's defaults per context, like g_stream. */
 struct FixedFunctionState {
   int generation = -1;
   GLuint program = 0;  // from SetEffectMode / SetCelShaded; 0 for none
@@ -521,12 +512,12 @@ struct FixedFunctionState {
   float light_position[4] = {0, 0, 1, 0};
   uint64_t lighting_serial = 0;
 };
-thread_local FixedFunctionState g_ff_state;
+FixedFunctionState g_ff_state;
 
-/* Serials are global, so they never repeat between threads, whose programs
- * (and uniform values) are shared. */
+/* Serials never repeat, so a program's recorded serials stay valid across
+ * context generations. */
 uint64_t NextUniformSerial() {
-  static std::atomic<uint64_t> serial{0};
+  static uint64_t serial = 0;
   return ++serial;
 }
 
@@ -585,7 +576,8 @@ void GetNormalMatrix(const RageMatrix& m, float out[9]) {
 }
 
 /* Binds p, first regrowing it to cover iPieces pieces of N indices each;
- * piece(i, out) writes the N indices of piece i. */
+ * piece(i, out) writes the N indices of piece i. Grows at least 2x, so text
+ * that gains a letter at a time doesn't rebuild it every frame. */
 template <int N, class Piece>
 void BindPatternIndices(PatternIndices& p, int iPieces, Piece piece) {
   CheckStreamGeneration();
@@ -596,6 +588,7 @@ void BindPatternIndices(PatternIndices& p, int iPieces, Piece piece) {
   if (iPieces <= p.pieces) {
     return;
   }
+  iPieces = std::max({iPieces, p.pieces * 2, 1024});
   std::vector<GLuint> vIndices(size_t(iPieces) * N);
   for (int i = 0; i < iPieces; ++i) {
     piece(GLuint(i), &vIndices[size_t(i) * N]);
@@ -770,14 +763,15 @@ static GLuint g_gDistanceFieldShader = 0;
 static GLuint g_hFixedFunctionShader = 0;
 
 /* Uniform locations of each program (-1 where it has none), and what was
- * last uploaded to it. Program objects and their uniforms are shared between
- * contexts and only one thread renders at a time, so this is global. */
+ * last uploaded to it. */
 struct ProgramInfo {
   GLint state, modelview, projection, normal, texture;
   GLint emission, ambient, diffuse, specular, shininess;
   GLint light_ambient, light_diffuse, light_specular, light_position;
+  GLint texture_width;  // YUYV422
   bool lit;  // has any material or light uniform
   int last_state[8];
+  int last_texture_width = -1;
   uint64_t modelview_serial = 0, projection_serial = 0, normal_serial = 0;
   uint64_t texture_serial = 0, lighting_serial = 0;
 };
@@ -812,6 +806,7 @@ static GLuint InitProgram(const std::string& sVert, const std::string& sFrag) {
   p.light_diffuse = loc("LightDiffuse");
   p.light_specular = loc("LightSpecular");
   p.light_position = loc("LightPosition");
+  p.texture_width = loc("TextureWidth");
   p.lit = p.ambient != -1 || p.light_position != -1;
   std::fill(std::begin(p.last_state), std::end(p.last_state), -1);
   CacheUseProgram(0);
@@ -1227,8 +1222,6 @@ bool RageDisplay_Legacy::BeginFrame() {
       offscreenRenderTarget = nullptr;
     }
   }
-  /* We do this in here, rather than ResolutionChanged, or we won't update the
-   * viewport for the concurrent rendering context. */
   int fWidth = g_pWind->GetActualVideoModeParams().windowWidth;
   int fHeight = g_pWind->GetActualVideoModeParams().windowHeight;
 
@@ -1401,7 +1394,7 @@ static GLint SetupVertices(const RageSpriteVertex v[], int iNumVerts) {
                             GLAD_GL_EXT_vertex_array_bgra;
   if (!bBGRA) {
     // No GL_BGRA vertex arrays: upload a copy with red and blue swapped.
-    thread_local std::vector<RageSpriteVertex> vSwapped;
+    static std::vector<RageSpriteVertex> vSwapped;
     vSwapped.assign(v, v + iNumVerts);
     for (RageSpriteVertex& sv : vSwapped) {
       std::swap(sv.c.r, sv.c.b);
@@ -2027,8 +2020,8 @@ void RageDisplay_Legacy::SetTextureFiltering(TextureUnit tu, bool b) {
   TexParams* params = nullptr;
   const int unit = g_cache.active_unit;
   if (unit >= 0 && g_cache.bound_tex[unit] >= 0) {
-    params = TexParamsFor(static_cast<GLuint>(g_cache.bound_tex[unit]));
-    if (params != nullptr && params->filter == static_cast<int>(b)) {
+    params = &g_tex_params[static_cast<GLuint>(g_cache.bound_tex[unit])];
+    if (params->filter == static_cast<int>(b)) {
       return;
     }
   }
@@ -2114,13 +2107,28 @@ void RageDisplay_Legacy::SetEffectMode(EffectMode effect) {
   FF().program = hShader;
 
   if (effect == EffectMode_YUYV422 && hShader != 0) {
-    DebugFlushGLErrors();
-    CacheUseProgram(hShader);
-    GLint iTextureWidthUniform = glGetUniformLocation(hShader, "TextureWidth");
-    GLint iWidth;
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth);
-    glUniform1i(iTextureWidthUniform, iWidth);
-    DebugAssertNoGLError();
+    // The width of the texture bound on the active unit; recorded when it
+    // was made, so no glGet.
+    GLint iWidth = -1;
+    const int unit = g_cache.active_unit;
+    if (unit >= 0 && g_cache.bound_tex[unit] > 0) {
+      auto it = g_tex_params.find(static_cast<GLuint>(g_cache.bound_tex[unit]));
+      if (it != g_tex_params.end()) {
+        iWidth = it->second.width;
+      }
+    }
+    if (iWidth < 0) {
+      CountGL(RenderProfiler::kGLGet);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iWidth);
+    }
+    ProgramInfo& info = g_Programs[hShader];
+    if (info.last_texture_width != iWidth) {
+      DebugFlushGLErrors();
+      CacheUseProgram(hShader);
+      glUniform1i(info.texture_width, iWidth);
+      info.last_texture_width = iWidth;
+      DebugAssertNoGLError();
+    }
   }
 }
 
@@ -2311,13 +2319,11 @@ void RageDisplay_Legacy::SetTextureWrapping(TextureUnit tu, bool b) {
   TexParams* params = nullptr;
   const int unit = g_cache.active_unit;
   if (unit >= 0 && g_cache.bound_tex[unit] >= 0) {
-    params = TexParamsFor(static_cast<GLuint>(g_cache.bound_tex[unit]));
-    if (params != nullptr) {
-      if (params->wrap == static_cast<int>(b)) {
-        return;
-      }
-      params->wrap = b;
+    params = &g_tex_params[static_cast<GLuint>(g_cache.bound_tex[unit])];
+    if (params->wrap == static_cast<int>(b)) {
+      return;
     }
+    params->wrap = b;
   }
   RenderProfiler::CountGL(RenderProfiler::kGLTexture, 2);
 
@@ -2410,36 +2416,6 @@ const RageDisplay::RagePixelFormatDesc* RageDisplay_Legacy::GetPixelFormatDesc(
   return &PIXEL_FORMAT_DESC[pf];
 }
 
-bool RageDisplay_Legacy::SupportsThreadedRendering() {
-  return g_pWind->SupportsThreadedRendering();
-}
-
-void RageDisplay_Legacy::BeginConcurrentRenderingMainThread() {
-  g_bTexParamsOff = true;  // before the render thread starts drawing
-  g_pWind->BeginConcurrentRenderingMainThread();
-  InvalidateGLStateCache();
-  BindVertexArrayObject();
-}
-
-void RageDisplay_Legacy::EndConcurrentRenderingMainThread() {
-  g_pWind->EndConcurrentRenderingMainThread();
-  InvalidateGLStateCache();
-  // The render thread is done; what it and this thread set wasn't recorded.
-  g_tex_params.clear();
-  g_bTexParamsOff = false;
-}
-
-void RageDisplay_Legacy::BeginConcurrentRendering() {
-  g_pWind->BeginConcurrentRendering();
-  InvalidateGLStateCache();
-  BindVertexArrayObject();
-  RageDisplay::BeginConcurrentRendering();
-}
-
-void RageDisplay_Legacy::EndConcurrentRendering() {
-  g_pWind->EndConcurrentRendering();
-}
-
 void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
   if (iTexture == 0) {
     return;
@@ -2453,9 +2429,7 @@ void RageDisplay_Legacy::DeleteTexture(uintptr_t iTexture) {
       b = 0;
     }
   }
-  if (!g_bTexParamsOff) {
-    g_tex_params.erase(id);
-  }
+  g_tex_params.erase(id);
 
   if (g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end()) {
     delete g_mapRenderTargets[iTexture];
@@ -2525,18 +2499,21 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   ASSERT(iTexHandle != 0);
   // Ids get reused. No mip levels yet, which spares SetTextureFiltering a
   // glGet below.
-  if (TexParams* params = TexParamsFor(static_cast<GLuint>(iTexHandle))) {
-    *params = TexParams();
-    params->mipmapped = 0;
-  }
+  g_tex_params[static_cast<GLuint>(iTexHandle)] =
+      TexParams{-1, -1, 0, power_of_two(pImg->w)};
 
   CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
   if (g_pWind->GetActualVideoModeParams().bAnisotropicFiltering &&
       GLAD_GL_EXT_texture_filter_anisotropic) {
-    GLfloat fLargestSupportedAnisotropy;
-    glGetFloatv(
-        GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargestSupportedAnisotropy);
+    // Queried once per context.
+    static GLfloat fLargestSupportedAnisotropy = 0;
+    static int iQueriedGeneration = -1;
+    if (iQueriedGeneration != g_iContextGeneration) {
+      glGetFloatv(
+          GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargestSupportedAnisotropy);
+      iQueriedGeneration = g_iContextGeneration;
+    }
     glTexParameterf(
         GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
         fLargestSupportedAnisotropy);
@@ -2577,10 +2554,9 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   // Filtering was set before the mip levels were uploaded, so set it again
   // on the next draw. Mipmapped the way SetTextureFiltering's glGet would
   // find it: a level 1 exists only above 1 texel wide.
-  if (TexParams* uploaded = TexParamsFor(static_cast<GLuint>(iTexHandle))) {
-    uploaded->filter = -1;
-    uploaded->mipmapped = bGenerateMipMaps && power_of_two(pImg->w) > 1;
-  }
+  TexParams& uploaded = g_tex_params[static_cast<GLuint>(iTexHandle)];
+  uploaded.filter = -1;
+  uploaded.mipmapped = bGenerateMipMaps && power_of_two(pImg->w) > 1;
 
   if (bFreeImg) {
     delete pImg;
@@ -2763,10 +2739,8 @@ void RenderTarget_FramebufferObject::Create(
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   // Set raw above; no mip levels.
-  if (TexParams* params = TexParamsFor(static_cast<GLuint>(m_iTexHandle))) {
-    *params = TexParams();
-    params->mipmapped = 0;
-  }
+  g_tex_params[static_cast<GLuint>(m_iTexHandle)] =
+      TexParams{-1, -1, 0, iTextureWidth};
 
   /* Create the framebuffer object. */
   glGenFramebuffers(1, reinterpret_cast<GLuint*>(&m_iFrameBufferHandle));
@@ -2851,7 +2825,7 @@ static std::vector<RenderTarget*> g_vOuterRenderTargets;
 
 void RageDisplay_Legacy::SetRenderTarget(
     uintptr_t iTexture, bool bPreserveTexture) {
-  g_cache.Invalidate();  // texture params live on the textures; keep them
+  // Render targets are FBOs in the window's context, so g_cache still holds.
   RenderTarget* pTarget = nullptr;
   if (iTexture != 0) {
     ASSERT(g_mapRenderTargets.find(iTexture) != g_mapRenderTargets.end());

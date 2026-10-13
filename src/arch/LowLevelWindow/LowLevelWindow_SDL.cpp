@@ -218,6 +218,12 @@ LowLevelWindow_SDL::~LowLevelWindow_SDL() {
       SDL_DestroyWindow(m_pWindow);
     }
     SDL_Quit();
+#if defined(_WIN32)
+    // SDL_Quit only drops video's reference to the window class; this drops
+    // the constructor's. Left registered, it keeps GraphicsWindow (the D3D
+    // fallback, or the native window) from registering the same name.
+    SDL_UnregisterApp();
+#endif
   });
 }
 
@@ -306,7 +312,10 @@ std::string LowLevelWindow_SDL::SetVideoMode(
   }
 
   SDL_SetWindowTitle(m_pWindow, p.sWindowTitle.c_str());
-  SetWindowIcon(m_pWindow, p.sIconFile);
+  if (p.sIconFile != m_sIconFile) {
+    m_sIconFile = p.sIconFile;
+    SetWindowIcon(m_pWindow, p.sIconFile);
+  }
 
   const SDL_DisplayID display = FindDisplay(p.sDisplayId);
   const SDL_DisplayMode* pDesktop = SDL_GetDesktopDisplayMode(display);
@@ -409,13 +418,16 @@ void LowLevelWindow_SDL::GetDisplaySpecsOnMainThread(DisplaySpecs& out) {
 
 void LowLevelWindow_SDL::LogDebugInformation() const {
   const int v = SDL_GetVersion();
-  int iProfile = 0;
-  SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &iProfile);
+  // The context's profile, not the one asked for (that can fall back).
+  GLint iProfile = 0;
+  if (GLAD_GL_VERSION_3_2) {
+    glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &iProfile);
+  }
   LOG->Info(
       "SDL %d.%d.%d, video driver %s, OpenGL %s profile",
       SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v),
       SDL_GetCurrentVideoDriver(),
-      iProfile == SDL_GL_CONTEXT_PROFILE_CORE ? "core" : "compatibility");
+      (iProfile & GL_CONTEXT_CORE_PROFILE_BIT) != 0 ? "core" : "compatibility");
 }
 
 bool LowLevelWindow_SDL::IsSoftwareRenderer(std::string& sError) {

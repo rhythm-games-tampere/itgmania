@@ -15,9 +15,6 @@ class LowLevelWindow_Win32 : public LowLevelWindow {
   bool IsSoftwareRenderer(std::string& sError);
   void SwapBuffers();
   void Update();
-  bool SupportsThreadedRendering();
-  void BeginConcurrentRendering();
-  void EndConcurrentRendering();
 
   bool SupportsFullscreenBorderlessWindow() const { return true; }
 

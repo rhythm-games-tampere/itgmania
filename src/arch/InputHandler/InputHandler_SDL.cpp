@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "InputFilter.h"
+#include "RageDisplay.h"
 #include "RageLog.h"
 #include "RageUtil.h"
 #include "arch/LowLevelWindow/LowLevelWindow_SDL.h"
@@ -263,9 +264,23 @@ void InputHandler_SDL::Update() {
         }
         break;
       }
-      case SDL_EVENT_MOUSE_MOTION:
-        INPUTFILTER->UpdateCursorLocation(e.motion.x, e.motion.y);
+      case SDL_EVENT_MOUSE_MOTION: {
+        // In the game's resolution, like the platform handlers' window
+        // pixels: the window can differ from it (rendering offscreen at
+        // another resolution, or points on a high-density display).
+        float x = e.motion.x, y = e.motion.y;
+        int w = 0, h = 0;
+        SDL_Window* pWindow = SDL_GetWindowFromID(e.motion.windowID);
+        if (DISPLAY != nullptr && pWindow != nullptr &&
+            SDL_GetWindowSize(pWindow, &w, &h) && w > 0 && h > 0) {
+          const ActualVideoModeParams params =
+              DISPLAY->GetActualVideoModeParams();
+          x *= static_cast<float>(params.width) / w;
+          y *= static_cast<float>(params.height) / h;
+        }
+        INPUTFILTER->UpdateCursorLocation(x, y);
         break;
+      }
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         DeviceButton b = DeviceButton_Invalid;
@@ -288,12 +303,14 @@ void InputHandler_SDL::Update() {
         break;
       }
       case SDL_EVENT_MOUSE_WHEEL: {
+        // Undo "natural" scrolling (macOS), so up is always up.
+        const int iFlip = e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1;
         // In Windows' units (WHEEL_DELTA per notch), like DirectInput.
-        INPUTFILTER->UpdateMouseWheel(e.wheel.y * 120);
+        INPUTFILTER->UpdateMouseWheel(e.wheel.y * iFlip * 120);
         // Whole notches only: trackpads scroll in many fractional steps.
-        if (e.wheel.integer_y != 0) {
-          const DeviceButton b =
-              e.wheel.integer_y > 0 ? MOUSE_WHEELUP : MOUSE_WHEELDOWN;
+        const int iNotches = e.wheel.integer_y * iFlip;
+        if (iNotches != 0) {
+          const DeviceButton b = iNotches > 0 ? MOUSE_WHEELUP : MOUSE_WHEELDOWN;
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, 1, tm));
           ButtonPressed(DeviceInput(DEVICE_MOUSE, b, 0, tm));
         }

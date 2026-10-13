@@ -14,6 +14,17 @@ Linux: `~/.itgmania/Save/Keymaps.ini`
 macOS: `~/Library/Preferences/ITGmania/Keymaps.ini`
 
 
+## Joystick mappings after the switch to SDL
+Joysticks and dance pads are now read through SDL by default, in place of
+DirectInput (Windows), HID (macOS) and the Linux event/joystick handlers. SDL
+may number a device's buttons and axes differently from those handlers, and
+may number the devices themselves (Joy1, Joy2, ...) in another order; Xbox-style
+controllers are the likeliest to change. If a pad doesn't respond as mapped,
+remap it in the Config Key/Joy Mappings screen. To keep the old handlers, set
+`WindowDriver=Native` in Preferences.ini, or list the handlers in
+`InputDrivers` (e.g. `InputDrivers=DirectInput`).
+
+
 ## Structure
 An ini file is split up into sections.  Each section begins with the section
 name in square brackets like this:

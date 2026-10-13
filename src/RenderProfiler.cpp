@@ -73,6 +73,8 @@ std::vector<Node> g_nodes;
 std::unordered_map<uint64_t, int> g_roots;
 std::vector<Open> g_stack;
 std::vector<Frame> g_frames;
+// About 30 MB of frames; at 1000 fps, over eight minutes.
+constexpr size_t kMaxFrames = 500000;
 Frame g_cur;
 int64_t g_frame_start = 0;
 bool g_in_frame = false;
@@ -124,11 +126,11 @@ int NewNode(int parent, const void* key, Kind kind) {
   return static_cast<int>(g_nodes.size()) - 1;
 }
 
-double Pct(std::vector<int64_t> v, double p) {
+// v is sorted.
+double Pct(const std::vector<int64_t>& v, double p) {
   if (v.empty()) {
     return 0;
   }
-  std::sort(v.begin(), v.end());
   size_t i =
       std::min(v.size() - 1, static_cast<size_t>(p * (v.size() - 1) + 0.5));
   return v[i] / 1e6;
@@ -258,7 +260,11 @@ void WriteReport() {
         GAMESTATE->m_pPlayerState[pn]->m_PlayerOptions.GetCurrent().GetString(
             true) +
         "\n";
-    out += "Theme mods (SL.ActiveModifiers):\n" + ThemeModifiers(pn);
+    // Simply Love's; other themes have no such table.
+    const std::string sThemeMods = ThemeModifiers(pn);
+    if (!sThemeMods.empty()) {
+      out += "Theme mods (SL.ActiveModifiers):\n" + sThemeMods;
+    }
   }
 
   // Per-frame stats.
@@ -274,6 +280,11 @@ void WriteReport() {
     verts += f.verts;
     scopes += f.scopes;
   }
+  if (g_frames.size() >= kMaxFrames) {
+    out += ssprintf(
+        "\n(Frame stats cover the first %d frames only.)\n",
+        static_cast<int>(kMaxFrames));
+  }
   out += ssprintf(
       "\n=== Frames: %d over %.1fs (%.1f fps avg) ===\n"
       "Draw calls/frame: %.0f   verts/frame: %.0f   profiler scopes/frame: "
@@ -286,8 +297,8 @@ void WriteReport() {
       "{\n  \"frames\": %d,\n  \"seconds\": %.3f,\n"
       "  \"draws_per_frame\": %.2f,\n  \"verts_per_frame\": %.1f,\n",
       static_cast<int>(nframes), secs, draws / nframes, verts / nframes);
-  auto row = [&](const char* name, const char* key,
-                 const std::vector<int64_t>& v) {
+  auto row = [&](const char* name, const char* key, std::vector<int64_t>& v) {
+    std::sort(v.begin(), v.end());
     double sum = 0;
     for (int64_t x : v) {
       sum += x;
@@ -470,7 +481,9 @@ void FrameEnd() {
     return;
   }
   g_cur.total = NowNs() - g_frame_start;
-  g_frames.push_back(g_cur);
+  if (g_frames.size() < kMaxFrames) {
+    g_frames.push_back(g_cur);
+  }
   g_in_frame = false;
 }
 

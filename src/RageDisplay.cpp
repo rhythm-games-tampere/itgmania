@@ -192,8 +192,6 @@ bool RageDisplay::BeginFrame() {
 
 void RageDisplay::EndFrame() { ProcessStatsOnFlip(); }
 
-void RageDisplay::BeginConcurrentRendering() { this->SetDefaultRenderStates(); }
-
 void RageDisplay::StatsAddVerts(int iNumVertsRendered) {
   RenderProfiler::AddDraw(iNumVertsRendered);
   g_iVertsRenderedSinceLastCheck += iNumVertsRendered;

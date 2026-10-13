@@ -442,8 +442,12 @@ void NoteField::Update(float fDeltaTime) {
       m_FieldRenderArgs.fail_fade);
 
   prof.Next("NoteField: NoteDisplay::Update (all noteskin resources)");
-  // Shared by every NoteField; guarded to run once per frame.
+  // Shared by every NoteField. The master player's calls it twice, as it
+  // always has: noteskin effect speeds depend on it (see NoteDisplay::Update).
   NoteDisplay::Update(fDeltaTime);
+  if (m_pPlayerState->m_PlayerNumber == GAMESTATE->GetMasterPlayerNumber()) {
+    NoteDisplay::Update(fDeltaTime);
+  }
 }
 
 float NoteField::GetWidth() const {

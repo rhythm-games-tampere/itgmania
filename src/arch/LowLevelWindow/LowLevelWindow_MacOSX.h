@@ -16,7 +16,6 @@ class LowLevelWindow_MacOSX : public LowLevelWindow {
   VideoModeParams m_CurrentParams;
   id m_WindowDelegate;
   id m_Context;
-  id m_BGContext;
   CFDictionaryRef m_CurrentDisplayMode;
   CGDirectDisplayID m_DisplayID;
 
@@ -33,9 +32,6 @@ class LowLevelWindow_MacOSX : public LowLevelWindow {
   const ActualVideoModeParams GetActualVideoModeParams() const {
     return m_CurrentParams;
   }
-
-  bool SupportsThreadedRendering() { return m_BGContext; }
-  void BeginConcurrentRendering();
 
  private:
   void ShutDownFullScreen();
