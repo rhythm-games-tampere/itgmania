@@ -2495,6 +2495,10 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
 
   SetTextureUnit(TextureUnit_1);
 
+  // A movie's surface is image-sized; the texture may be bigger.
+  const int iTexWidth = TextureDimension(pImg->w);
+  const int iTexHeight = TextureDimension(pImg->h);
+
   // allocate OpenGL texture resource
   uintptr_t iTexHandle = 0;  // glGenTextures fills only the low 32 bits
   glGenTextures(1, reinterpret_cast<GLuint*>(&iTexHandle));
@@ -2502,7 +2506,7 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   // Ids get reused. No mip levels yet, which spares SetTextureFiltering a
   // glGet below.
   g_tex_params[static_cast<GLuint>(iTexHandle)] =
-      TexParams{-1, -1, 0, power_of_two(pImg->w)};
+      TexParams{-1, -1, 0, iTexWidth};
 
   CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
@@ -2524,6 +2528,10 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   SetTextureFiltering(TextureUnit_1, true);
   SetTextureWrapping(TextureUnit_1, false);
 
+  // Rows are packed (RageSurface pitch is w * bytes per pixel), which an
+  // odd-width 16-bit texture breaks with GL's default 4-byte alignment. Set
+  // per upload: textures also load on a second, shared context.
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
   glPixelStorei(
       GL_UNPACK_ROW_LENGTH, pImg->pitch / pImg->format->BytesPerPixel);
 
@@ -2536,8 +2544,8 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   DebugFlushGLErrors();
 
   glTexImage2D(
-      GL_TEXTURE_2D, 0, glTexFormat, power_of_two(pImg->w),
-      power_of_two(pImg->h), 0, glImageFormat, glImageType, nullptr);
+      GL_TEXTURE_2D, 0, glTexFormat, iTexWidth, iTexHeight, 0, glImageFormat,
+      glImageType, nullptr);
   if (pImg->pixels) {
     glTexSubImage2D(
         GL_TEXTURE_2D, 0, 0, 0, pImg->w, pImg->h, glImageFormat, glImageType,
@@ -2558,7 +2566,7 @@ uintptr_t RageDisplay_Legacy::CreateTexture(
   // find it: a level 1 exists only above 1 texel wide.
   TexParams& uploaded = g_tex_params[static_cast<GLuint>(iTexHandle)];
   uploaded.filter = -1;
-  uploaded.mipmapped = bGenerateMipMaps && power_of_two(pImg->w) > 1;
+  uploaded.mipmapped = bGenerateMipMaps && iTexWidth > 1;
 
   if (bFreeImg) {
     delete pImg;
@@ -2649,6 +2657,7 @@ void RageDisplay_Legacy::UpdateTexture(
   RagePixelFormat SurfacePixFmt =
       GetImgPixelFormat(pImg, bFreeImg, iWidth, iHeight);
 
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);  // see CreateTexture
   glPixelStorei(
       GL_UNPACK_ROW_LENGTH, pImg->pitch / pImg->format->BytesPerPixel);
 
@@ -2716,8 +2725,8 @@ void RenderTarget_FramebufferObject::Create(
   glGenTextures(1, reinterpret_cast<GLuint*>(&m_iTexHandle));
   ASSERT(m_iTexHandle != 0);
 
-  int iTextureWidth = power_of_two(param.iWidth);
-  int iTextureHeight = power_of_two(param.iHeight);
+  int iTextureWidth = DISPLAY->TextureDimension(param.iWidth);
+  int iTextureHeight = DISPLAY->TextureDimension(param.iHeight);
 
   iTextureWidthOut = iTextureWidth;
   iTextureHeightOut = iTextureHeight;

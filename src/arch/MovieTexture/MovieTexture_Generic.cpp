@@ -203,9 +203,8 @@ void MovieTexture_Generic::CreateTexture() {
   m_iImageWidth = m_iSourceWidth;
   m_iImageHeight = m_iSourceHeight;
 
-  /* Texture dimensions need to be a power of two; jump to the next. */
-  m_iTextureWidth = power_of_two(m_iImageWidth);
-  m_iTextureHeight = power_of_two(m_iImageHeight);
+  m_iTextureWidth = DISPLAY->TextureDimension(m_iImageWidth);
+  m_iTextureHeight = DISPLAY->TextureDimension(m_iImageHeight);
   MovieDecoderPixelFormatYCbCr fmt = PixelFormatYCbCr_Invalid;
   if (surface_ == nullptr) {
     ASSERT(texture_lock_ == nullptr);
@@ -278,8 +277,8 @@ void MovieTexture_Generic::CreateTexture() {
     intermediate_texture_ =
         std::make_unique<RageMovieTexture_Generic_Intermediate>(
             IntermedID, decoder_->GetWidth(), decoder_->GetHeight(),
-            surface_->w, surface_->h, power_of_two(surface_->w),
-            power_of_two(surface_->h), *surface_->format, pixfmt);
+            surface_->w, surface_->h, DISPLAY->TextureDimension(surface_->w),
+            DISPLAY->TextureDimension(surface_->h), *surface_->format, pixfmt);
 
     /* Configure the sprite.  This blits the intermediate onto the ifnal render
      * target. */

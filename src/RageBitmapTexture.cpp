@@ -184,9 +184,8 @@ void RageBitmapTexture::Create() {
   m_iImageWidth = std::min(m_iImageWidth, actualID.iMaxSize);
   m_iImageHeight = std::min(m_iImageHeight, actualID.iMaxSize);
 
-  /* Texture dimensions need to be a power of two; jump to the next. */
-  m_iTextureWidth = power_of_two(m_iImageWidth);
-  m_iTextureHeight = power_of_two(m_iImageHeight);
+  m_iTextureWidth = DISPLAY->TextureDimension(m_iImageWidth);
+  m_iTextureHeight = DISPLAY->TextureDimension(m_iImageHeight);
 
   /* If we're under 8x8, increase it, to avoid filtering problems on odd
    * hardware. */

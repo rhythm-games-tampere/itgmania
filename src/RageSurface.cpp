@@ -232,7 +232,9 @@ RageSurface* CreateSurface(
   pImg->h = height;
   pImg->flags = 0;
   pImg->pitch = width * BitsPerPixel / 8;
-  pImg->pixels = new uint8_t[pImg->pitch * height];
+  // Zeroed: padding up to a power-of-two texture size is never written, and
+  // wrapped or filtered edges sample it.
+  pImg->pixels = new uint8_t[pImg->pitch * height]();
 
   /*
   if( BitsPerPixel == 8 )

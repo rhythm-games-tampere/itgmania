@@ -74,6 +74,7 @@ class RageDisplay_Legacy : public RageDisplay {
   void SetEffectMode(EffectMode effect);
   bool IsEffectModeSupported(EffectMode effect);
   bool SupportsRenderToTexture() const;
+  bool SupportsNonPowerOfTwoTextures() const { return true; }
   bool SupportsFullscreenBorderlessWindow() const;
   uintptr_t CreateRenderTarget(
       const RenderTargetParam& param, int& iTextureWidthOut,

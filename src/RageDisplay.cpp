@@ -41,6 +41,16 @@ int g_iNumVerts;
 int g_iFPS, g_iVPF, g_iCFPS;
 
 int RageDisplay::GetFPS() const { return g_iFPS; }
+
+// Off pads textures to powers of two, as before; RenderTest compares both.
+static Preference<bool> g_bNonPowerOfTwoTextures("NonPowerOfTwoTextures", true);
+
+int RageDisplay::TextureDimension(int iImageSize) const {
+  if (SupportsNonPowerOfTwoTextures() && g_bNonPowerOfTwoTextures) {
+    return iImageSize;
+  }
+  return power_of_two(iImageSize);
+}
 int RageDisplay::GetVPF() const { return g_iVPF; }
 int RageDisplay::GetCumFPS() const { return g_iCFPS; }
 

@@ -286,6 +286,11 @@ class RageDisplay {
   }
 
   virtual bool SupportsRenderToTexture() const { return false; }
+  virtual bool SupportsNonPowerOfTwoTextures() const { return false; }
+  // Width or height of the texture that holds an image this size: the same
+  // size, or the next power of two where NPOT textures aren't supported or
+  // the NonPowerOfTwoTextures preference is off.
+  int TextureDimension(int iImageSize) const;
   virtual bool SupportsFullscreenBorderlessWindow() const { return false; }
 
   /* Create a render target, returning a texture handle. In addition to normal
