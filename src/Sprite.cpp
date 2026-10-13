@@ -976,6 +976,10 @@ void Sprite::ScaleToClipped(float fWidth, float fHeight) {
     // this is probably a background graphic or something not intended to be a
     // CroppedSprite
     Sprite::StopUsingCustomCoords();
+    // The rect below stays inside the image, so it needs no wrapping, which
+    // SetCustomImageRect turns on: filtering at the clipped edges would blend
+    // in the image's opposite edge.
+    const bool bTextureWrapping = m_bTextureWrapping;
 
     // first find the correct zoom
     Sprite::ScaleToCover(RectF(0, 0, fWidth, fHeight));
@@ -1007,6 +1011,7 @@ void Sprite::ScaleToClipped(float fWidth, float fHeight) {
           0, fPercentageToCutOffEachSide, 1, 1 - fPercentageToCutOffEachSide);
       SetCustomImageRect(fCustomImageRect);
     }
+    m_bTextureWrapping = bTextureWrapping;
     m_size = RageVector2(fWidth, fHeight);
     SetZoom(1);
   }
@@ -1033,6 +1038,10 @@ void Sprite::CropTo(float fWidth, float fHeight) {
     // this is probably a background graphic or something not intended to be a
     // CroppedSprite
     Sprite::StopUsingCustomCoords();
+    // The rect below stays inside the image, so it needs no wrapping, which
+    // SetCustomImageRect turns on: filtering at the clipped edges would blend
+    // in the image's opposite edge.
+    const bool bTextureWrapping = m_bTextureWrapping;
 
     // first find the correct zoom
     Sprite::ScaleToCover(RectF(0, 0, fWidth, fHeight));
@@ -1060,6 +1069,7 @@ void Sprite::CropTo(float fWidth, float fHeight) {
           0, fPercentageToCutOffEachSide, 1, 1 - fPercentageToCutOffEachSide);
       SetCustomImageRect(fCustomImageRect);
     }
+    m_bTextureWrapping = bTextureWrapping;
     m_size = RageVector2(fWidth, fHeight);
     SetZoom(1);
   }
