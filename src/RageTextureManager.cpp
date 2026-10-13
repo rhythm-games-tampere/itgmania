@@ -37,6 +37,7 @@
 #include "RageTextureID.h"
 #include "RageThreads.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "arch/MovieTexture/MovieTexture.h"
 #include "global.h"
 
@@ -145,6 +146,7 @@ class RageTexture_Default : public RageTexture {
 
 // Load and unload textures from disk.
 RageTexture* RageTextureManager::LoadTextureInternal(RageTextureID ID) {
+  RenderProfiler::EventScope prof("texture load", ID.filename);
   CHECKPOINT_M(
       ssprintf("RageTextureManager::LoadTexture(%s).", ID.filename.c_str()));
 

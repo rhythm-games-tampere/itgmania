@@ -22,6 +22,7 @@
 #include "RageThreads.h"
 #include "RageTypes.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "StdString.h"
 #include "XmlFile.h"
 #include "arch/Dialog/Dialog.h"
@@ -783,6 +784,7 @@ XNode* LuaHelpers::GetLuaInformation() {
 }
 
 bool LuaHelpers::RunScriptFile(const std::string& sFile) {
+  RenderProfiler::EventScope prof("lua run", sFile);
   std::string sScript;
   if (!GetFileContents(sFile, sScript)) {
     return false;

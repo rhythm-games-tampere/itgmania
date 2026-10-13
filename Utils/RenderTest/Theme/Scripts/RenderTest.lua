@@ -68,7 +68,7 @@ end
 
 function RenderTest.SetupGameplay(step)
 	PREFSMAN:SetPreference("CelShadeModels", step.celshade == true)
-	PREFSMAN:SetPreference("RenderProfiler", step.profile and 2 or 0)
+	PREFSMAN:SetPreference("RenderProfiler", step.profile and (config.ProfilerMode or 2) or 0)
 	local song = SONGMAN:FindSong(SONG)
 	assert(song, "RenderTest: song not found: " .. SONG)
 	GAMESTATE:Reset()

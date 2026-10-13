@@ -172,6 +172,7 @@ Actor::Actor() {
 }
 
 Actor::~Actor() {
+  RenderProfiler::ActorGone(this);
   StopTweening();
   UnsubscribeAll();
   for (size_t i = 0; i < m_WrapperStates.size(); ++i) {

@@ -3,6 +3,7 @@
 
   rendertest.py run [--out DIR] [--renderer opengl|d3d] [--size WxH] [--no-perf]
                     [--pref KEY=VALUE ...] [--theme DIR] [--exe NAME]
+                    [--profiler-mode 1|2|3]
   rendertest.py compare BASELINE_DIR NEW_DIR
 
 `run` builds an isolated portable install under Build/RenderTest/root
@@ -163,7 +164,7 @@ def setup_theme(root, theme):
 
 
 def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None,
-               exe_name="ITGmania.exe"):
+               exe_name="ITGmania.exe", profiler_mode=2):
     root = WORK / "root"
     for d in ("Themes", "Characters", "Save"):
         (root / d).mkdir(parents=True, exist_ok=True)
@@ -210,14 +211,15 @@ def setup_root(renderer, size, skip_perf, extra_prefs=(), theme=None,
             text = text.replace("[Options]\n", "[Options]\n" + p + "\n", 1)
     prefs.write_text(text)
     (root / "Save" / "RenderTest.ini").write_text(
-        f"[RenderTest]\nSkipPerf={int(skip_perf)}\n")
+        f"[RenderTest]\nSkipPerf={int(skip_perf)}\n"
+        f"ProfilerMode={profiler_mode}\n")
     return root, exe
 
 
 def run(args):
     out = Path(args.out) if args.out else WORK / "runs" / time.strftime("%Y%m%d-%H%M%S")
     root, exe = setup_root(args.renderer, args.size, args.no_perf, args.pref,
-                           args.theme, args.exe)
+                           args.theme, args.exe, args.profiler_mode)
     print(f"Running {exe} ...")
     log = root / "Logs" / "log.txt"
     t = time.time()
@@ -246,6 +248,8 @@ def run(args):
     if profiles:
         shutil.copy(profiles[-1], out / "perf.json")
         shutil.copy(profiles[-1].with_suffix(".txt"), out / "perf.txt")
+    for p in sorted((root / "Logs").glob("FrameSpikes-*.jsonl"))[-1:]:
+        shutil.copy(p, out / "FrameSpikes.jsonl")
     text = log.read_text(errors="replace") if log.exists() else ""
     if text:
         shutil.copy(log, out / "log.txt")
@@ -404,6 +408,9 @@ def main():
                    help="extra [Options] preference, e.g. CelShadeModels=1")
     r.add_argument("--theme", metavar="DIR",
                    help="drive this theme instead of RenderTest (Simply Love)")
+    r.add_argument("--profiler-mode", type=int, default=2, choices=(1, 2, 3),
+                   help="RenderProfiler mode for the profiled song; 3 also "
+                        "records spikes (FrameSpikes.jsonl)")
     r.add_argument("--exe", default="ITGmania.exe",
                    help="Windows: binary in Program/, e.g. ITGmania-debug.exe")
     c = sub.add_parser("compare")

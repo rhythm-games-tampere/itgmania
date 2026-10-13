@@ -18,6 +18,7 @@
 #include "RageFileManager.h"
 #include "RageLog.h"
 #include "RageUtil.h"
+#include "RenderProfiler.h"
 #include "Song.h"
 #include "StdString.h"
 #include "ThemeManager.h"
@@ -304,6 +305,7 @@ bool ActorUtil::LoadTableFromStackShowErrors(Lua* L) {
 // NOTE: This function can return nullptr if the actor should not be displayed.
 // Callers should be aware of this and handle it appropriately.
 Actor* ActorUtil::MakeActor(const std::string& sPath_, Actor* pParentActor) {
+  RenderProfiler::EventScope prof("actor load", sPath_);
   std::string sPath(sPath_);
 
   FileType ft = GetFileType(sPath);

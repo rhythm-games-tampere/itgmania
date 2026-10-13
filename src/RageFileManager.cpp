@@ -19,6 +19,7 @@
 #include "RageThreads.h"
 #include "RageUtil.h"
 #include "RageUtil_FileDB.h"
+#include "RenderProfiler.h"
 #include "StdString.h"
 #include "arch/ArchHooks/ArchHooks.h"
 #include "global.h"
@@ -1024,6 +1025,7 @@ static bool PathUsesSlowFlush(const std::string& sPath) {
 /* Used only by RageFile: */
 RageFileBasic* RageFileManager::Open(
     const std::string& sPath_, int mode, int& err) {
+  RenderProfiler::EventScope prof("file open", sPath_);
   std::string sPath = sPath_;
 
   err = ENOENT;

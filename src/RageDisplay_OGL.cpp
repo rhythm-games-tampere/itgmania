@@ -2650,6 +2650,9 @@ RagePixelFormat RageDisplay_Legacy::GetImgPixelFormat(
 
 uintptr_t RageDisplay_Legacy::CreateTexture(
     RagePixelFormat pixfmt, RageSurface* pImg, bool bGenerateMipMaps) {
+  static const std::string kNoName;
+  RenderProfiler::EventScope prof("texture create", kNoName);
+  prof.bytes = static_cast<int64_t>(pImg->pitch) * pImg->h;
   ASSERT(pixfmt < NUM_RagePixelFormat);
   ASSERT(pixfmt != RagePixelFormat_PAL);  // SupportsTextureFormat says no
 
@@ -2820,6 +2823,9 @@ RageTextureLock* RageDisplay_Legacy::CreateTextureLock() {
 void RageDisplay_Legacy::UpdateTexture(
     uintptr_t iTexHandle, RageSurface* pImg, int iXOffset, int iYOffset,
     int iWidth, int iHeight) {
+  static const std::string kNoName;
+  RenderProfiler::EventScope prof("texture update", kNoName);
+  prof.bytes = static_cast<int64_t>(pImg->pitch) * iHeight;
   CacheBindTexture(static_cast<GLuint>(iTexHandle));
 
   bool bFreeImg;

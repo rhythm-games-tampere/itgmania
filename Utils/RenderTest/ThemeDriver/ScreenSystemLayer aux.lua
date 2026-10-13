@@ -26,9 +26,11 @@ end
 
 -- The whole song again with RenderProfiler on, like the RenderTest theme's
 -- perf step. The profiler writes its report when gameplay ends.
+local config = IniFile.ReadFile("/Save/RenderTest.ini").RenderTest or {}
+
 local function StartPerf()
 	JoinPlayers()
-	PREFSMAN:SetPreference("RenderProfiler", 2)
+	PREFSMAN:SetPreference("RenderProfiler", config.ProfilerMode or 2)
 	-- No screenshots in this run, so no back buffer copy every frame.
 	PREFSMAN:SetPreference("ScreenshotBackBuffer", false)
 end
@@ -42,8 +44,7 @@ local steps = {
 	{ screen = "ScreenEvaluationStage", frames = 180, shot = "evaluation" },
 }
 
--- Options from rendertest.py.
-local config = IniFile.ReadFile("/Save/RenderTest.ini").RenderTest or {}
+-- Options from rendertest.py (config, above).
 if config.SkipPerf ~= 1 then
 	steps[#steps + 1] = { go = "ScreenGameplay", setup = StartPerf, frames = 1 }
 	steps[#steps + 1] = { screen = "ScreenEvaluationStage", frames = 1 }

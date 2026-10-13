@@ -14,7 +14,10 @@ struct Message;
  * and its summary to a .json next to it (Utils/RenderTest compares those).
  * RenderProfiler in Preferences.ini: 0 = off (default), 1 = full (per-actor
  * scopes, high overhead), 2 = light (frame phases, named sections and GL
- * counters only; use this for timing). */
+ * counters only; use this for timing), 3 = spikes (light, plus a record of
+ * every frame that missed its deadline: sections, GPU, thread CPU time, page
+ * faults, Lua GC, slow actors and main-thread events such as texture loads;
+ * written to /Logs/FrameSpikes-*.jsonl at Stop). */
 namespace RenderProfiler {
 
 enum Kind { kUpdate, kDraw, kCommand, kNamed };
@@ -56,6 +59,9 @@ extern uint32_t g_session;
 extern int g_debug_groups;
 // Time named Draw sections on the GPU too (modes 2 and 3).
 extern bool g_gpu;
+// Mode 3: record spikes, and time actor calls to catch slow ones.
+extern bool g_spikes;
+extern bool g_slow_actors;
 
 inline void CountGL(GLStat s, int n = 1) {
   if (g_active) {
@@ -76,23 +82,44 @@ void PopGroup();
 // The frame's GPU timestamps (ns), indexed by RageDisplay::GpuMark's return.
 void GpuResolved(const uint64_t* times, int n);
 void AddDraw(int verts);
+// Mode 3's slow-actor timing: a stack of open actor calls, no tree.
+bool SlowBegin(const void* actor, Kind kind);
+void SlowEnd();
+// The actor is being destroyed; open slow-actor calls forget it.
+void ActorGoneSlow(const Actor* a);
+inline void ActorGone(const Actor* a) {
+  if (g_slow_actors) {
+    ActorGoneSlow(a);
+  }
+}
 const char* Intern(const std::string& s);
 
 struct Scope {
   bool pushed;
+  bool slow;
   bool group;
   uint32_t session = g_session;
   Scope(const void* key, Kind kind, FrameSlot slot = kSlotNone)
       : pushed(
             g_active && key != nullptr && (kind == kNamed || g_actor_scopes) &&
             Push(key, kind, slot)),
-        group(g_debug_groups != 0 && key != nullptr && PushGroup(key, kind, slot)) {}
+        slow(
+            g_slow_actors && kind != kNamed && key != nullptr &&
+            SlowBegin(key, kind)),
+        group(
+            g_debug_groups != 0 && key != nullptr &&
+            PushGroup(key, kind, slot)) {}
   ~Scope() {
     if (group) {
       PopGroup();
     }
-    if (pushed && session == g_session) {
-      Pop();
+    if (session == g_session) {
+      if (pushed) {
+        Pop();
+      }
+      if (slow) {
+        SlowEnd();
+      }
     }
   }
   Scope(const Scope&) = delete;
@@ -108,6 +135,28 @@ struct CommandScope {
   CommandScope(const Actor* a, const Message& msg)
       : actor(a, kCommand),
         name(actor.pushed ? InternName(msg) : nullptr, kNamed) {}
+};
+
+// Mode 3: a main-thread event during the frame (texture load, file open,
+// actor load...). name must outlive the scope; set bytes if it means anything.
+int64_t EventBegin();
+void EventEnd(
+    const char* type, const std::string& name, int64_t start, int64_t bytes);
+struct EventScope {
+  const char* type;
+  const std::string& name;
+  int64_t start;
+  int64_t bytes = 0;
+  uint32_t session = g_session;
+  EventScope(const char* t, const std::string& n)
+      : type(t), name(n), start(g_spikes ? EventBegin() : -1) {}
+  ~EventScope() {
+    if (start >= 0 && session == g_session) {
+      EventEnd(type, name, start, bytes);
+    }
+  }
+  EventScope(const EventScope&) = delete;
+  EventScope& operator=(const EventScope&) = delete;
 };
 
 // Consecutive named sections inside one function:
