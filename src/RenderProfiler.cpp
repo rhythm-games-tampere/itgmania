@@ -701,7 +701,8 @@ void WriteReport() {
   out += "=== ITGmania render profile (ScreenGameplay) ===\n";
   out += g_actor_scopes
              ? "Profiler mode: 1 (full; per-actor timings inflated)\n"
-             : "Profiler mode: 2 (light)\n";
+         : g_spikes ? "Profiler mode: 3 (spikes)\n"
+                    : "Profiler mode: 2 (light)\n";
   if (const Song* song = GAMESTATE->m_pCurSong) {
     out += "Song: " + song->GetDisplayFullTitle() + "\n";
   }
