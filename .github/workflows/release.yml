@@ -103,7 +103,8 @@ jobs:
       # Profile-guided optimization (MSVC and GCC; Clang isn't wired up yet):
       # build an instrumented game, play a Simply Love session with it, then
       # build the package with the recorded profile. About 5% less CPU work
-      # per frame.
+      # per frame. The training is OpenGL only; BUILD.md lists what it doesn't
+      # cover (Direct3D among them) and how to train a build yourself.
       - name: Pick PGO
         shell: bash
         run: |

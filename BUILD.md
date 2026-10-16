@@ -59,7 +59,46 @@ cmake --build --preset linux     # build Release
 
 Release and RelWithDebInfo builds use link-time optimization. For another configuration, add `--config Debug` (or `RelWithDebInfo`, `MinSizeRel`) to the build command. Options such as `-DWITH_CLUB_FANTASTIC=ON` go on the configure command.
 
-Release packages on Windows and Linux also use profile-guided optimization (MSVC and GCC only). To do the same locally, configure with `-DSM_PGO=GENERATE` and build, play a few songs with that (slower, instrumented) build or run `python Utils/RenderTest/rendertest.py run --theme "Themes/Simply Love"`, then configure the same build directory with `-DSM_PGO=USE` and build again. The profile is kept in `Build/<preset>/pgo`.
+### Profile-Guided Optimization
+
+Release packages on Windows and Linux are built with profile-guided optimization (PGO): an instrumented build of the game is played first, and the compiler then optimizes for the code paths that session actually used. This takes about 5% off the CPU work per frame. It changes how the code is laid out and inlined, not what it does, and it adds no CPU requirements. PGO is supported with MSVC and GCC; macOS (Clang) packages are built without it.
+
+#### What the release training covers
+
+The release workflow trains on one Simply Love session (menus, gameplay, evaluation) driven by `Utils/RenderTest`, on Mesa's software OpenGL. That covers the game logic, Lua, the note field, the OpenGL renderer, the SDL window, and audio decoding and mixing. It does **not** cover:
+
+- **The Direct3D renderer** (`VideoRenderers=d3d`). This matters most of the items here: rendering runs every frame.
+- GPU-vendor-specific OpenGL paths beyond what Mesa reports.
+- The sound output drivers (WASAPI, DirectSound, WaveOut, ALSA, PulseAudio, JACK); training uses the Null driver. These are thin layers over the mixing, which is trained.
+- Dance pads, other HID and serial input devices, and lights drivers.
+- The native (non-SDL) windows (`WindowDriver=Native`).
+
+Code the training never ran still works the same. GCC optimizes it as it would without PGO. MSVC treats it as cold and optimizes it for size, so on Windows those paths can run a little slower than in a build without PGO. If you run the game with Direct3D, or another configuration from the list matters to you, train your own build as below.
+
+#### Training your own build
+
+From the `itgmania` directory, using the preset for your platform (`windows` here):
+
+```sh
+cmake --preset windows -DSM_PGO=GENERATE   # instrumented build
+cmake --build --preset windows
+```
+
+Then run that build the way you play. The instrumented game is slower, and it writes its profile when it exits normally (not when it crashes or is killed). Either play a few songs with your own settings, renderer, pads and lights, or let RenderTest drive a session:
+
+```sh
+python Utils/RenderTest/rendertest.py run --theme "Themes/Simply Love"
+python Utils/RenderTest/rendertest.py run --theme "Themes/Simply Love" --renderer d3d
+```
+
+Every session adds to the profile, so you can combine several, for example one with OpenGL and one with Direct3D. Then build with the profile:
+
+```sh
+cmake --preset windows -DSM_PGO=USE
+cmake --build --preset windows
+```
+
+The profile is kept in `Build/<preset>/pgo`. Delete that directory before generating a new profile after code changes; a stale profile only optimizes the code that hasn't changed. `-DSM_PGO=OFF` returns to a normal build.
 
 IDEs that understand presets (Visual Studio, VS Code, CLion) list them directly. The CMake GUI shows them in its preset drop-down.
 
