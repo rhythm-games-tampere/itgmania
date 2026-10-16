@@ -73,7 +73,7 @@ The release workflow trains on one Simply Love session (menus, gameplay, evaluat
 - Dance pads, other HID and serial input devices, and lights drivers.
 - The native (non-SDL) windows (`WindowDriver=Native`).
 
-Code the training never ran still works the same. GCC optimizes it as it would without PGO. MSVC treats it as cold and optimizes it for size, so on Windows those paths can run a little slower than in a build without PGO. If you run the game with Direct3D, or another configuration from the list matters to you, train your own build as below.
+Code the training never ran still works the same. GCC optimizes it as it would without PGO. MSVC treats it as cold and optimizes it for size, so on Windows those particular paths can run a little slower than in a build without PGO. The game as a whole still comes out ahead, because most of the CPU work is in the trained code: with Direct3D, the release profile still takes about 1.5% off the CPU work per frame, and a build trained on a Direct3D session takes about 4% off. If you run the game with Direct3D, or another configuration from the list matters to you, train your own build as below to get the full benefit.
 
 #### Training your own build
 
