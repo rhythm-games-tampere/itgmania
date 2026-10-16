@@ -98,6 +98,20 @@ jobs:
         with:
           os: ${{ matrix.os }}
           ccache: 'false'
+          mesa: ${{ runner.os != 'macOS' }}
+
+      # Profile-guided optimization (MSVC and GCC; Clang isn't wired up yet):
+      # build an instrumented game, play a Simply Love session with it, then
+      # build the package with the recorded profile. About 5% less CPU work
+      # per frame.
+      - name: Pick PGO
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            echo "SM_PGO=OFF" >> "$GITHUB_ENV"
+          else
+            echo "SM_PGO=GENERATE" >> "$GITHUB_ENV"
+          fi
 
       - name: Create nightly release
         if: (github.event_name == 'push' && github.ref_name == 'beta') || (github.event_name == 'workflow_dispatch' && inputs.release_type == 'nightly')
@@ -105,6 +119,7 @@ jobs:
           cmake --preset ${{ env.PRESET }}
           -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On
           -DWITH_CLUB_FANTASTIC=${{ matrix.club_fantastic }}
+          -DSM_PGO=${{ env.SM_PGO }}
 
       - name: Create full release
         if: (github.event_name == 'push' && github.ref_name == 'release') || (github.event_name == 'workflow_dispatch' && inputs.release_type == 'full')
@@ -112,6 +127,46 @@ jobs:
           cmake --preset ${{ env.PRESET }}
           -DWITH_FULL_RELEASE=On -DWITH_NIGHTLY_RELEASE=Off
           -DWITH_CLUB_FANTASTIC=${{ matrix.club_fantastic }}
+          -DSM_PGO=${{ env.SM_PGO }}
+
+      - uses: actions/setup-python@v5
+        if: env.SM_PGO == 'GENERATE'
+        with:
+          python-version: '3.12'
+
+      - name: Build the instrumented game
+        if: env.SM_PGO == 'GENERATE'
+        run: |
+          python -m pip install pillow
+          cmake --build --preset ${{ env.PRESET }}
+
+      # Software OpenGL (Mesa llvmpipe); Xvfb on Linux.
+      - name: Train on a Simply Love session
+        if: env.SM_PGO == 'GENERATE'
+        shell: bash
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          cmd=(python Utils/RenderTest/rendertest.py run --theme "Themes/Simply Love"
+               --out pgo-training --timeout 3000 --size 960x540)
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1920x1080x24" "${cmd[@]}"
+          else
+            "${cmd[@]}"
+          fi
+
+      - name: Upload the training run
+        if: failure() && env.SM_PGO == 'GENERATE'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pgo-training-${{ matrix.os }}-ClubFantastic-${{ matrix.club_fantastic }}
+          path: pgo-training
+
+      # The package step below builds with it.
+      - name: Switch to the profile
+        if: env.SM_PGO == 'GENERATE'
+        run: cmake --preset ${{ env.PRESET }} -DSM_PGO=USE
 
       - name: Create package
         run: cmake --build --preset ${{ env.PRESET }} --target package

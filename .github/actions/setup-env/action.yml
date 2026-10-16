@@ -8,6 +8,10 @@ inputs:
     description: "Whether to install ccache"
     required: false
     default: "false"
+  mesa:
+    description: "Whether to install Mesa's software OpenGL (and Xvfb on Linux) to run the game headless"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -37,6 +41,22 @@ runs:
         if [ "${{ inputs.ccache }}" = "true" ]; then
           choco install ccache
         fi
+      shell: bash
+
+    - name: Install Mesa (Linux)
+      if: inputs.mesa == 'true' && runner.os == 'Linux'
+      run: sudo apt-get install -y xvfb libgl1-mesa-dri
+      shell: bash
+
+    # Next to the game in Program/; the packages don't install it.
+    - name: Install Mesa (Windows)
+      if: inputs.mesa == 'true' && runner.os == 'Windows'
+      run: |
+        curl -sSfL -o mesa.7z https://github.com/pal1000/mesa-dist-win/releases/download/26.2.3/mesa3d-26.2.3-release-msvc.7z
+        # A third party's build: fail if the file isn't the one we checked.
+        echo "3f3613adb43cfd0f2e665ce2400b130c275f0b3317cb3a05566320a3a67589ed  mesa.7z" | sha256sum -c -
+        7z x -y -omesa mesa.7z "x64/opengl32.dll" "x64/libgallium_wgl.dll"
+        cp mesa/x64/opengl32.dll mesa/x64/libgallium_wgl.dll Program/
       shell: bash
 
     - name: ccache
