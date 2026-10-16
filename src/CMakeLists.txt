@@ -117,13 +117,20 @@ if(WIN32)
       COMMENT "Generating file to allow for easier stack traces.")
   endif()
 
-  # The ffmpeg DLLs have to sit next to the executable.
-  add_custom_command(
-    TARGET "${SM_EXE_NAME}" POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "$<TARGET_RUNTIME_DLLS:${SM_EXE_NAME}>"
-            "$<TARGET_FILE_DIR:${SM_EXE_NAME}>"
-    COMMAND_EXPAND_LISTS)
+  # The ffmpeg DLLs have to sit next to the executable. Each copy is a build
+  # output, so a deleted one comes back on the next build without a relink.
+  set(SM_FFMPEG_DLL_COPIES "")
+  foreach(lib avcodec avformat avutil swscale)
+    get_target_property(dll ffmpeg::${lib} IMPORTED_LOCATION)
+    cmake_path(GET dll FILENAME dll_name)
+    add_custom_command(OUTPUT "${SM_OUTPUT_DIR}/${dll_name}"
+                       COMMAND "${CMAKE_COMMAND}" -E copy "${dll}" "${SM_OUTPUT_DIR}"
+                       DEPENDS "${dll}")
+    list(APPEND SM_FFMPEG_DLL_COPIES "${SM_OUTPUT_DIR}/${dll_name}")
+  endforeach()
+  add_custom_target("ffmpeg-dlls" DEPENDS ${SM_FFMPEG_DLL_COPIES})
+  set_property(TARGET "ffmpeg-dlls" PROPERTY FOLDER "Internal Libraries")
+  add_dependencies("${SM_EXE_NAME}" "ffmpeg-dlls")
 elseif(APPLE)
   target_compile_definitions("${SM_EXE_NAME}" PRIVATE
                              BACKTRACE_METHOD_GENERIC_UNIX
@@ -179,7 +186,8 @@ else() # Linux / BSD
     target_link_libraries("${SM_EXE_NAME}" PRIVATE PkgConfig::JACK)
   endif()
   if(HAS_X11)
-    target_link_libraries("${SM_EXE_NAME}" PRIVATE X11::X11 X11::SM X11::ICE X11::Xext)
+    # Xext for DPMS in X11Helper.cpp.
+    target_link_libraries("${SM_EXE_NAME}" PRIVATE X11::X11 X11::Xext)
   endif()
   if(HAS_LIBXTST)
     target_compile_definitions("${SM_EXE_NAME}" PRIVATE HAVE_LIBXTST)

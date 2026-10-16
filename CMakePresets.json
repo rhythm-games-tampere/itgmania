@@ -8,15 +8,14 @@
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/Build/${presetName}",
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE": "ON",
-        "CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
       "name": "windows",
       "displayName": "Windows (Ninja; run from a VS developer prompt)",
       "inherits": "base",
+      "architecture": { "value": "x64", "strategy": "external" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {

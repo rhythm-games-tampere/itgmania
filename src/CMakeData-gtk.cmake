@@ -16,5 +16,6 @@ target_include_directories("LoadingWindowGtk" PRIVATE
 
 target_link_libraries("LoadingWindowGtk" PRIVATE PkgConfig::GTK3)
 
-target_link_libraries("${SM_EXE_NAME}" PRIVATE "LoadingWindowGtk" PkgConfig::GTK3)
+# GTK's libraries reach the executable through the object library's link.
+target_link_libraries("${SM_EXE_NAME}" PRIVATE "LoadingWindowGtk")
 target_compile_definitions("${SM_EXE_NAME}" PRIVATE HAVE_GTK)

@@ -50,10 +50,13 @@ endif()
 
 set_property(TARGET SDL3-static mbedtls mbedcrypto mbedx509
              PROPERTY FOLDER "External Libraries")
-# These were always built quietly; upstream zlib and hidapi do warn.
+# These were always built quietly; upstream zlib, hidapi and libusb do warn.
 get_target_property(SM_HIDAPI_TARGET hidapi::hidapi ALIASED_TARGET)
 sm_vendored_target(zlibstatic)
 sm_vendored_target("${SM_HIDAPI_TARGET}")
+if(LINUX)
+  sm_vendored_target(usb-1.0)
+endif()
 
 # --- Libraries built from hand-written source lists -------------------------
 

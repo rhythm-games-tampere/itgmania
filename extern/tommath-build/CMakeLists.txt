@@ -175,7 +175,8 @@ if(MSVC)
   string(REGEX REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
   target_compile_options("tommath" PRIVATE "/Ox")
 else()
-  target_compile_options("tommath" PRIVATE "-Og")
+  # Only Debug lacks the optimization; -Og after -O3 would slow Release down.
+  target_compile_options("tommath" PRIVATE "$<$<CONFIG:Debug>:-Og>")
 endif()
 
 # LTO would defer that elimination to link time, too late for the references.
