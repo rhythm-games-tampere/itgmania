@@ -1,24 +1,15 @@
-list(APPEND SMDATA_GLOBAL_FILES_SRC
-            "GameLoop.cpp"
-            "RenderProfiler.cpp"
-            "global.cpp"
-            "SpecialFiles.cpp"
-            "StepMania.cpp" # TODO: Refactor into separate main project.
-            "${SM_GENERATED_SRC_DIR}/verstub.cpp")
-
-list(APPEND SMDATA_GLOBAL_FILES_HPP
-            "GameLoop.h"
-            "RenderProfiler.h"
-            "global.h"
-            "PeriodicCaller.h"
-            "ProductInfo.h" # TODO: Have this be auto-generated.
-            "SpecialFiles.h"
-            "StdString.h" # TODO: Remove the need for this file, transition to
-                          # std::string.
-            "StepMania.h" # TODO: Refactor into separate main project.
-     )
-
-source_group("Global Files"
-             FILES
-             ${SMDATA_GLOBAL_FILES_SRC}
-             ${SMDATA_GLOBAL_FILES_HPP})
+target_sources("${SM_EXE_NAME}" PRIVATE
+  "GameLoop.cpp"
+  "RenderProfiler.cpp"
+  "global.cpp"
+  "SpecialFiles.cpp"
+  "StepMania.cpp"
+  "${SM_GENERATED_SRC_DIR}/verstub.cpp"
+  "GameLoop.h"
+  "RenderProfiler.h"
+  "global.h"
+  "PeriodicCaller.h"
+  "ProductInfo.h"
+  "SpecialFiles.h"
+  "StdString.h"
+  "StepMania.h")

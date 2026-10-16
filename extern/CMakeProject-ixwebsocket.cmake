@@ -89,41 +89,22 @@ set(IXW_HPP "${IXW_DIR}/IXBench.h"
 list(APPEND IXW_SRC "${IXW_DIR}/IXSocketMbedTLS.cpp")
 list(APPEND IXW_HPP "${IXW_DIR}/IXSocketMbedTLS.h")
 
-source_group("" FILES ${IXW_SRC} ${IXW_HPP})
-
 add_library("ixwebsocket" STATIC ${IXW_SRC} ${IXW_HPP})
 
-set_property(TARGET "ixwebsocket" PROPERTY FOLDER "External Libraries")
-set_property(TARGET "ixwebsocket" PROPERTY CXX_STANDARD 11)
-set_property(TARGET "ixwebsocket" PROPERTY CXX_STANDARD_REQUIRED ON)
-set_property(TARGET "ixwebsocket" PROPERTY CXX_EXTENSIONS OFF)
+set_target_properties("ixwebsocket" PROPERTIES CXX_STANDARD 11
+                                               CXX_STANDARD_REQUIRED ON
+                                               CXX_EXTENSIONS OFF)
 
-disable_project_warnings("ixwebsocket")
+target_compile_definitions("ixwebsocket" PRIVATE
+                           IXWEBSOCKET_USE_TLS
+                           IXWEBSOCKET_USE_MBED_TLS
+                           IXWEBSOCKET_USE_MBED_TLS_MIN_VERSION_3
+                           IXWEBSOCKET_USE_ZLIB)
 
-target_compile_definitions("ixwebsocket" PRIVATE IXWEBSOCKET_USE_TLS)
-target_compile_definitions("ixwebsocket" PRIVATE IXWEBSOCKET_USE_MBED_TLS)
-target_compile_definitions("ixwebsocket" PRIVATE IXWEBSOCKET_USE_MBED_TLS_MIN_VERSION_3)
-set(ENABLE_TESTING OFF CACHE INTERNAL "Don't build tests")
-set(GEN_FILES OFF CACHE INTERNAL "Don't generate files (requires perl and python)")
-add_subdirectory("mbedtls" EXCLUDE_FROM_ALL)
-set_property(TARGET "mbedtls" PROPERTY FOLDER "External Libraries")
-set_property(TARGET "mbedcrypto" PROPERTY FOLDER "External Libraries")
-set_property(TARGET "mbedx509" PROPERTY FOLDER "External Libraries")
-target_link_libraries("ixwebsocket" mbedtls mbedcrypto mbedx509)
-
-target_compile_definitions("ixwebsocket" PRIVATE IXWEBSOCKET_USE_ZLIB)
-
+target_link_libraries("ixwebsocket" PUBLIC mbedtls mbedcrypto mbedx509
+                                           ZLIB::ZLIBSTATIC Threads::Threads)
 if(WIN32)
-  target_link_libraries(ixwebsocket wsock32 ws2_32 shlwapi Crypt32)
-  target_compile_definitions(ixwebsocket PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_link_libraries("ixwebsocket" PUBLIC wsock32 ws2_32 shlwapi Crypt32)
 endif()
 
-if(UNIX)
-  find_package(Threads)
-  target_link_libraries(ixwebsocket ${CMAKE_THREAD_LIBS_INIT})
-endif()
-
-target_include_directories(ixwebsocket PUBLIC
-  "zlib"
-  "IXWebSocket"
-)
+target_include_directories("ixwebsocket" PUBLIC "IXWebSocket")

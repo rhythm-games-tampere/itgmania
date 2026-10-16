@@ -14,6 +14,9 @@ set(CPACK_RESOURCE_FILE_README "${SM_ROOT_DIR}/README.md")
 set(CPACK_RESOURCE_FILE_LICENSE "${SM_CMAKE_DIR}/license_install.txt")
 
 if(WIN32)
+  # Picks up our NSIS.template.in.
+  set(CPACK_MODULE_PATH "${SM_CMAKE_DIR}/Modules")
+
   # NSIS produces the .exe installer; ZIP produces a portable .zip of the same payload.
   set(CPACK_GENERATOR NSIS ZIP)
   set(CPACK_SYSTEM_NAME "Windows")
@@ -55,7 +58,7 @@ if(WIN32)
   set(CPACK_SM_NSIS_PRODUCT_ID "ITGmania")
   set(CPACK_SM_NSIS_PRODUCT_VERSION "${SM_VERSION_TRADITIONAL}.0")
   set(CPACK_SM_NSIS_GIT_VERSION "${SM_VERSION_GIT}")
-elseif(MACOSX)
+elseif(APPLE)
   set(CPACK_GENERATOR DragNDrop)
   set(CPACK_DMG_VOLUME_NAME "${CPACK_PACKAGE_NAME} ${CPACK_PACKAGE_VERSION}")
   set(CPACK_DMG_FORMAT ULMO)  # lzma-compressed image

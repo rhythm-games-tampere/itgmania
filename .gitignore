@@ -15,6 +15,7 @@ ITGmania.project
 ITGmania.workspace
 build/
 Build/
+CMakeUserPresets.json
 !Build/INSTALL.md
 !Build/README.md
 verdata.*

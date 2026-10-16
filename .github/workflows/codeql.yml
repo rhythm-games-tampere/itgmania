@@ -48,10 +48,10 @@ jobs:
         ccache: 'false'
 
     - name: Configure
-      run: cmake -B build ${{ env.CMAKE_FLAGS }}
-    
+      run: cmake --preset ${{ env.PRESET }}
+
     - name: Build
-      run: cmake --build build ${{ env.CMAKE_BUILD_FLAGS }}
+      run: cmake --build --preset ${{ env.PRESET }} --config Debug
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

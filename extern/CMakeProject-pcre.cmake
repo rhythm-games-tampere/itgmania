@@ -28,13 +28,7 @@ configure_file("config.pcre.in.h" "pcre/config.h" COPYONLY)
 configure_file("pcre/pcre.h.generic" "pcre/pcre.h" COPYONLY)
 configure_file("pcre/pcre_chartables.c.dist" "pcre/pcre_chartables.c" COPYONLY)
 
-source_group("" FILES ${PCRE_SRC} ${PCRE_HPP})
-
 add_library("pcre" STATIC ${PCRE_SRC} ${PCRE_HPP})
-
-set_property(TARGET "pcre" PROPERTY FOLDER "External Libraries")
-
-disable_project_warnings("pcre")
 
 target_compile_definitions("pcre" PRIVATE HAVE_CONFIG_H)
 target_compile_definitions("pcre" PUBLIC PCRE_STATIC)

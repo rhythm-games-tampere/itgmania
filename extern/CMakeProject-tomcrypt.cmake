@@ -420,11 +420,7 @@ set(TOMCRYPT_HPP "libtomcrypt/src/headers/tomcrypt.h"
                  "libtomcrypt/src/headers/tomcrypt_pkcs.h"
                  "libtomcrypt/src/headers/tomcrypt_prng.h")
 
-source_group("" FILES ${TOMCRYPT_SRC} ${TOMCRYPT_HPP})
-
 add_library("tomcrypt" STATIC ${TOMCRYPT_SRC} ${TOMCRYPT_HPP})
-
-set_property(TARGET "tomcrypt" PROPERTY FOLDER "External Libraries")
 
 # Required since building from the source.
 target_compile_definitions("tomcrypt" PRIVATE LTC_SOURCE)
@@ -461,13 +457,8 @@ target_compile_definitions("tomcrypt" PRIVATE LTC_TRY_URANDOM_FIRST)
 target_compile_definitions("tomcrypt" PRIVATE LTC_NO_PK)
 target_compile_definitions("tomcrypt" PRIVATE LTC_MRSA)
 target_compile_definitions("tomcrypt" PRIVATE LTC_NO_PROTOTYPES)
-
-if(WITH_PORTABLE_TOMCRYPT)
-  target_compile_definitions("tomcrypt" PRIVATE LTC_NO_ASM)
-endif()
-if(WITH_NO_ROLC_TOMCRYPT)
-  target_compile_definitions("tomcrypt" PRIVATE LTC_NO_ROLC)
-endif()
+# Public: the headers pick inline asm macros unless this is set.
+target_compile_definitions("tomcrypt" PUBLIC LTC_NO_ASM)
 
 # Fixes build failures due to clang warnings
 # See itgmania/itgmania#107 for details
@@ -477,12 +468,7 @@ set_property(TARGET "tomcrypt" PROPERTY C_STANDARD_REQUIRED ON)
 if(APPLE)
   set_property(TARGET "tomcrypt" PROPERTY XCODE_ATTRIBUTE_GCC_NO_COMMON_BLOCKS "YES")
 endif()
-if(MSVC)
-  target_compile_definitions("tomcrypt" PRIVATE _CRT_SECURE_NO_WARNINGS)
-endif()
 
-disable_project_warnings("tomcrypt")
-
-target_link_libraries("tomcrypt" "tommath")
+target_link_libraries("tomcrypt" PUBLIC "tommath")
 
 target_include_directories("tomcrypt" PUBLIC "libtomcrypt/src/headers")

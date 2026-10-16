@@ -1,11 +1,112 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.28)
 
-project(StepMania)
+# Must be set before project(); ignored on other platforms.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11" CACHE STRING "Minimum macOS version")
 
-include(StepmaniaCore.cmake)
+project(ITGmania VERSION 1.3.0 LANGUAGES C CXX)
 
-# The external libraries need to be included.
+set(SM_EXE_NAME "ITGmania")
+
+set(SM_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(SM_CMAKE_DIR "${SM_ROOT_DIR}/CMake")
+set(SM_EXTERN_DIR "${SM_ROOT_DIR}/extern")
+set(SM_INSTALLER_DIR "${SM_ROOT_DIR}/Installer")
+set(SM_XCODE_DIR "${SM_ROOT_DIR}/Xcode")
+set(SM_PROGRAM_DIR "${SM_ROOT_DIR}/Program")
+set(SM_SRC_DIR "${SM_ROOT_DIR}/src")
+set(SM_GENERATED_SRC_DIR "${PROJECT_BINARY_DIR}/generated/src")
+
+# Static MSVC runtime instead of the DLL.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+if(CMAKE_GENERATOR STREQUAL "Xcode")
+  # Makes Xcode's 'Archive' build find the static libraries.
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/extern")
+endif()
+
+include("${SM_CMAKE_DIR}/DefineOptions.cmake")
+include("${SM_CMAKE_DIR}/SMDefs.cmake")
+
+# Groups a vendored target in IDEs and silences its warnings.
+function(sm_vendored_target target)
+  set_target_properties("${target}" PROPERTIES FOLDER "External Libraries"
+                                               SYSTEM ON)
+  if(WITH_EXTERNAL_WARNINGS)
+    return()
+  endif()
+  if(CMAKE_GENERATOR STREQUAL "Xcode")
+    set_property(TARGET "${target}"
+                 PROPERTY XCODE_ATTRIBUTE_GCC_WARN_INHIBIT_ALL_WARNINGS "YES")
+  elseif(MSVC)
+    target_compile_options("${target}" PRIVATE "/W0")
+  else()
+    target_compile_options("${target}" PRIVATE "-w")
+  endif()
+endfunction()
+
+# --- Platform dependencies --------------------------------------------------
+
+find_package(Threads REQUIRED)
+
+if(WIN32)
+  include("${SM_CMAKE_DIR}/ffmpeg-w32.cmake")
+else()
+  find_program(SM_NASM NAMES nasm yasm)
+  if(NOT SM_NASM)
+    message(FATAL_ERROR "Neither NASM nor YASM were found. Please install one of them.")
+  endif()
+  include("${SM_CMAKE_DIR}/SetupFfmpeg.cmake")
+endif()
+
+if(APPLE)
+  find_package(Iconv REQUIRED)
+elseif(LINUX OR BSD)
+  find_package(PkgConfig REQUIRED)
+
+  set(HAS_GTK3 FALSE)
+  if(WITH_GTK3)
+    pkg_check_modules(GTK3 IMPORTED_TARGET gtk+-3.0)
+    if(GTK3_FOUND)
+      set(HAS_GTK3 TRUE)
+    else()
+      message(STATUS "GTK3 was not found on your system. There will be no loading window.")
+    endif()
+  endif()
+
+  if(WITH_X11 OR WITH_XRANDR OR WITH_LIBXTST OR WITH_XINERAMA)
+    find_package(X11 REQUIRED)
+  endif()
+  set(HAS_X11 ${WITH_X11})
+  set(HAS_XRANDR ${WITH_XRANDR})
+  set(HAS_LIBXTST ${WITH_LIBXTST})
+  set(HAS_XINERAMA ${WITH_XINERAMA})
+
+  set(HAS_PULSE ${WITH_PULSEAUDIO})
+  if(HAS_PULSE)
+    pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
+  endif()
+  set(HAS_ALSA ${WITH_ALSA})
+  if(HAS_ALSA)
+    find_package(ALSA REQUIRED)
+  endif()
+  set(HAS_JACK ${WITH_JACK})
+  if(HAS_JACK)
+    pkg_check_modules(JACK REQUIRED IMPORTED_TARGET jack)
+  endif()
+  if(NOT (HAS_PULSE OR HAS_ALSA OR HAS_JACK))
+    message(FATAL_ERROR "No sound libraries selected. You will require at least one.")
+  endif()
+
+  set(OpenGL_GL_PREFERENCE GLVND)
+  find_package(OpenGL REQUIRED)
+
+  pkg_check_modules(UDEV REQUIRED IMPORTED_TARGET libudev)
+endif()
+
+configure_file("${SM_SRC_DIR}/verstub.cpp.in"
+               "${SM_GENERATED_SRC_DIR}/verstub.cpp")
+
 add_subdirectory(extern)
-
-# The internal libraries and eventual executable to be used.
 add_subdirectory(src)
+
+include("${SM_CMAKE_DIR}/CPackSetup.cmake")

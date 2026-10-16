@@ -4,14 +4,6 @@
 option(WITH_EXTERNAL_WARNINGS
        "Build with warnings for all components, not just StepMania." OFF)
 
-# This option is not yet working, but will likely default to ON in the future.
-option(WITH_LTO
-       "Build with Link Time Optimization (LTO)/Whole Program Optimization."
-       OFF)
-
-# This option handles if we use SSE2 processing.
-option(WITH_SSE2 "Build with SSE2 Optimizations." ON)
-
 # Turn this on to set this to a specific release mode.
 option(WITH_FULL_RELEASE "Build as a proper, full release." OFF)
 
@@ -27,18 +19,6 @@ option(WITH_MACOS_PORTABLE_APP
        "Build a macOS .app without bundling Contents/Resources game data."
        OFF)
 
-# Turn this on to compile tomcrypt with no assembly data. This is a portable
-# mode.
-option(WITH_PORTABLE_TOMCRYPT
-       "Build with assembly/free tomcrypt, making it portable." ON)
-
-# Turn this on to not use the ROLC assembly featurs of tomcrypt. If
-# WITH_PORTABLE_TOMCRYPT is ON, this will automatically have no effect.
-option(
-  WITH_NO_ROLC_TOMCRYPT
-  "Build without the ROLC assembly instructions for tomcrypt."
-  OFF)
-
 if(MSVC)
   # Turn this option on to enable using the Texture Font Generator.
   option(
@@ -47,10 +27,8 @@ if(MSVC)
     OFF)
 endif()
 
-if(LINUX)
-  option(WITH_PROFILING "Build with Profiling Support." OFF)
+if(LINUX OR BSD)
   option(WITH_GTK3 "Build with GTK3 Support." ON)
-  option(WITH_PARALLEL_PORT "Build with Parallel Lights I/O Support." OFF)
   option(WITH_CRASH_HANDLER "Build with Crash Handler Support." ON)
   option(WITH_XINERAMA
          "Build using libXinerama to query for monitor numbers (if available)."

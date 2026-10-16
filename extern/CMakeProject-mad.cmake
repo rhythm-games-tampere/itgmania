@@ -31,30 +31,17 @@ set(MAD_DAT "libmad/D.dat"
             "libmad/rq_table.dat"
             "libmad/sf_table.dat")
 
-source_group("Source Files" FILES ${MAD_SRC})
-source_group("Header Files" FILES ${MAD_HPP})
-source_group("Data Files" FILES ${MAD_DAT})
-
 add_library("mad" STATIC ${MAD_SRC} ${MAD_HPP} ${MAD_DAT})
-
-set_property(TARGET "mad" PROPERTY FOLDER "External Libraries")
-
-disable_project_warnings("mad")
-
-if(ENDIAN_BIG)
-  set(WORDS_BIGENDIAN 1)
-endif()
 
 target_compile_definitions("mad" PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 target_compile_definitions("mad" PRIVATE HAVE_CONFIG_H)
 
 if(MSVC)
-  target_compile_definitions("mad" PRIVATE _CRT_SECURE_NO_WARNINGS)
   # TODO: Remove the need for this check since it's tied to 32-bit builds from
   # first glance.
   target_compile_definitions("mad" PRIVATE ASO_ZEROCHECK)
   target_compile_definitions("mad" PRIVATE $<$<CONFIG:Debug>:FPM_DEFAULT>)
-  if(SM_WIN32_ARCH MATCHES "x64")
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     target_compile_definitions("mad" PRIVATE $<$<CONFIG:Release>:FPM_64BIT>)
     target_compile_definitions("mad" PRIVATE $<$<CONFIG:MinSizeRel>:FPM_64BIT>)
     target_compile_definitions("mad" PRIVATE $<$<CONFIG:RelWithDebInfo>:FPM_64BIT>)
@@ -67,7 +54,7 @@ if(MSVC)
   target_compile_definitions("mad" PRIVATE inline=__inline)
 elseif(APPLE OR UNIX)
   target_compile_definitions("mad" PRIVATE FPM_64BIT=1)
-endif(MSVC)
+endif()
 
 target_include_directories("mad" PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/libmad")
 target_include_directories("mad" PUBLIC "libmad")

@@ -1,402 +1,214 @@
-list(APPEND SMDATA_ARCH_SRC "arch/RageDriver.cpp")
-
-list(APPEND SMDATA_ARCH_HPP "arch/arch_default.h" "arch/RageDriver.h")
-
-source_group("Arch Specific" FILES ${SMDATA_ARCH_SRC} ${SMDATA_ARCH_HPP})
-
-list(APPEND SMDATA_ARCH_THREADS_HPP "arch/Threads/Threads.h")
+target_sources("${SM_EXE_NAME}" PRIVATE
+  "arch/RageDriver.cpp"
+  "arch/arch_default.h"
+  "arch/RageDriver.h"
+  "arch/Threads/Threads.h"
+  "arch/Sound/RageSoundDriver.cpp"
+  "arch/Sound/RageSoundDriver_Generic_Software.cpp"
+  "arch/Sound/RageSoundDriver_Null.cpp"
+  "arch/Sound/RageSoundDriver.h"
+  "arch/Sound/RageSoundDriver_Null.h"
+  "arch/MovieTexture/MovieTexture.cpp"
+  "arch/MovieTexture/MovieTexture_FFMpeg.cpp"
+  "arch/MovieTexture/MovieTexture_Generic.cpp"
+  "arch/MovieTexture/MovieTexture_Null.cpp"
+  "arch/MovieTexture/MovieTexture.h"
+  "arch/MovieTexture/MovieTexture_FFMpeg.h"
+  "arch/MovieTexture/MovieTexture_Generic.h"
+  "arch/MovieTexture/MovieTexture_Null.h"
+  "arch/MemoryCard/MemoryCardDriver.cpp"
+  "arch/MemoryCard/MemoryCardDriverThreaded_Folder.cpp"
+  "arch/MemoryCard/MemoryCardDriver.h"
+  "arch/MemoryCard/MemoryCardDriver_Null.h"
+  "arch/MemoryCard/MemoryCardDriverThreaded_Folder.h"
+  "arch/LowLevelWindow/LowLevelWindow.cpp"
+  "arch/LowLevelWindow/LowLevelWindow_SDL.cpp"
+  "arch/LowLevelWindow/LowLevelWindow.h"
+  "arch/LowLevelWindow/LowLevelWindow_SDL.h"
+  "arch/LoadingWindow/LoadingWindow.cpp"
+  "arch/LoadingWindow/LoadingWindow.h"
+  "arch/Lights/LightsDriver.cpp"
+  "arch/Lights/LightsDriver_Export.cpp"
+  "arch/Lights/LightsDriver_SextetStream.cpp"
+  "arch/Lights/LightsDriver_SystemMessage.cpp"
+  "arch/Lights/LightsDriver_stac.cpp"
+  "arch/Lights/LightsDriver_stac2.cpp"
+  "arch/Lights/LightsDriver_snek.cpp"
+  "arch/Lights/LightsDriver_fusion.cpp"
+  "arch/Lights/LightsDriver_MinimaidHID.cpp"
+  "arch/Lights/LightsDriver_PacDrive.cpp"
+  "arch/Lights/LightsDriver_gpb.cpp"
+  "arch/Lights/LightsDriver_HidBlueDot.cpp"
+  "arch/Lights/LightsDriver.h"
+  "arch/Lights/LightsDriver_Export.h"
+  "arch/Lights/LightsDriver_SextetStream.h"
+  "arch/Lights/LightsDriver_SystemMessage.h"
+  "arch/Lights/SextetUtils.h"
+  "arch/Lights/LightsDriver_stac.h"
+  "arch/Lights/LightsDriver_stac2.h"
+  "arch/Lights/LightsDriver_snek.h"
+  "arch/Lights/LightsDriver_fusion.h"
+  "arch/Lights/LightsDriver_MinimaidHID.h"
+  "arch/Lights/LightsDriver_PacDrive.h"
+  "arch/Lights/LightsDriver_gpb.h"
+  "arch/Lights/LightsDriver_HidBlueDot.h"
+  "arch/InputHandler/InputHandler.cpp"
+  "arch/InputHandler/InputHandler_PumpHID.cpp"
+  "arch/InputHandler/InputHandler_MonkeyKeyboard.cpp"
+  "arch/InputHandler/InputHandler_SDL.cpp"
+  "arch/InputHandler/InputHandler.h"
+  "arch/InputHandler/InputHandler_PumpHID.h"
+  "arch/InputHandler/InputHandler_MonkeyKeyboard.h"
+  "arch/InputHandler/InputHandler_SDL.h"
+  "arch/Dialog/Dialog.cpp"
+  "arch/Dialog/DialogDriver.cpp"
+  "arch/Dialog/Dialog.h"
+  "arch/Dialog/DialogDriver.h"
+  "arch/Socket/Socket.h"
+  "arch/ArchHooks/ArchHooks.cpp"
+  "arch/ArchHooks/ArchHooks.h")
 
 if(WIN32)
-  list(APPEND SMDATA_ARCH_THREADS_HPP "arch/Threads/Threads_Win32.h")
-  list(APPEND SMDATA_ARCH_THREADS_SRC "arch/Threads/Threads_Win32.cpp")
-elseif(APPLE)
-  list(APPEND SMDATA_ARCH_THREADS_HPP "arch/Threads/Threads_Pthreads.h")
-  list(APPEND SMDATA_ARCH_THREADS_SRC "arch/Threads/Threads_Pthreads.cpp")
-else()
-  if(HAS_PTHREAD)
-    list(APPEND SMDATA_ARCH_THREADS_HPP "arch/Threads/Threads_Pthreads.h")
-    list(APPEND SMDATA_ARCH_THREADS_SRC "arch/Threads/Threads_Pthreads.cpp")
+  target_sources("${SM_EXE_NAME}" PRIVATE
+    "arch/Threads/Threads_Win32.cpp"
+    "arch/Threads/Threads_Win32.h"
+    "arch/Sound/DSoundHelpers.cpp"
+    "arch/Sound/RageSoundDriver_DSound_Software.cpp"
+    "arch/Sound/RageSoundDriver_WaveOut.cpp"
+    "arch/Sound/RageSoundDriver_WDMKS.cpp"
+    "arch/Sound/RageSoundDriver_WASAPI.cpp"
+    "arch/Sound/DSoundHelpers.h"
+    "arch/Sound/RageSoundDriver_DSound_Software.h"
+    "arch/Sound/RageSoundDriver_WaveOut.h"
+    "arch/Sound/RageSoundDriver_WDMKS.h"
+    "arch/Sound/RageSoundDriver_WASAPI.h"
+    "arch/MemoryCard/MemoryCardDriverThreaded_Windows.cpp"
+    "arch/MemoryCard/MemoryCardDriverThreaded_Windows.h"
+    "arch/LowLevelWindow/LowLevelWindow_Win32.cpp"
+    "arch/LowLevelWindow/LowLevelWindow_Win32.h"
+    "arch/LoadingWindow/LoadingWindow_Win32.cpp"
+    "arch/LoadingWindow/LoadingWindow_Win32.h"
+    "arch/Lights/LightsDriver_Win32Serial.cpp"
+    "arch/Lights/LightsDriver_Win32Parallel.cpp"
+    "arch/Lights/LightsDriver_Win32Minimaid.cpp"
+    "arch/Lights/LightsDriver_Win32Parallel.h"
+    "arch/Lights/LightsDriver_Win32Serial.h"
+    "arch/Lights/LightsDriver_Win32Minimaid.h"
+    "arch/InputHandler/InputHandler_DirectInput.cpp"
+    "arch/InputHandler/InputHandler_DirectInputHelper.cpp"
+    "arch/InputHandler/InputHandler_Win32_MIDI.cpp"
+    "arch/InputHandler/InputHandler_Win32_Para.cpp"
+    "arch/InputHandler/InputHandler_Win32_Pump.cpp"
+    "arch/InputHandler/InputHandler_Win32_RTIO.cpp"
+    "arch/InputHandler/InputHandler_Win32_ddrio.cpp"
+    "arch/InputHandler/InputHandler_DirectInput.h"
+    "arch/InputHandler/InputHandler_DirectInputHelper.h"
+    "arch/InputHandler/InputHandler_Win32_MIDI.h"
+    "arch/InputHandler/InputHandler_Win32_Para.h"
+    "arch/InputHandler/InputHandler_Win32_Pump.h"
+    "arch/InputHandler/InputHandler_Win32_RTIO.h"
+    "arch/InputHandler/InputHandler_Win32_ddrio.h"
+    "arch/Dialog/DialogDriver_Win32.cpp"
+    "arch/Dialog/DialogDriver_Win32.h"
+    "arch/Socket/Socket_Windows.cpp"
+    "arch/ArchHooks/ArchHooksUtil.cpp"
+    "arch/ArchHooks/ArchHooks_Win32.cpp"
+    "arch/ArchHooks/ArchHooks_Win32Static.cpp"
+    "arch/ArchHooks/ArchHooks_Win32.h")
+  if(NOT MSVC)
+    target_sources("${SM_EXE_NAME}" PRIVATE
+      "arch/InputHandler/InputHandler_SextetStream.cpp"
+      "arch/InputHandler/InputHandler_SextetStream.h")
   endif()
-endif()
-
-source_group("Arch Specific\\\\Threads"
-             FILES
-             ${SMDATA_ARCH_THREADS_SRC}
-             ${SMDATA_ARCH_THREADS_HPP})
-
-list(APPEND SMDATA_ARCH_SOUND_SRC
-            "arch/Sound/RageSoundDriver.cpp"
-            "arch/Sound/RageSoundDriver_Generic_Software.cpp"
-            "arch/Sound/RageSoundDriver_Null.cpp")
-
-list(APPEND SMDATA_ARCH_SOUND_HPP "arch/Sound/RageSoundDriver.h"
-            "arch/Sound/RageSoundDriver_Null.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_SOUND_SRC
-              "arch/Sound/DSoundHelpers.cpp"
-              "arch/Sound/RageSoundDriver_DSound_Software.cpp"
-              "arch/Sound/RageSoundDriver_WaveOut.cpp"
-              "arch/Sound/RageSoundDriver_WDMKS.cpp"
-              "arch/Sound/RageSoundDriver_WASAPI.cpp")
-  list(APPEND SMDATA_ARCH_SOUND_HPP
-              "arch/Sound/DSoundHelpers.h"
-              "arch/Sound/RageSoundDriver_DSound_Software.h"
-              "arch/Sound/RageSoundDriver_WaveOut.h"
-              "arch/Sound/RageSoundDriver_WDMKS.h"
-              "arch/Sound/RageSoundDriver_WASAPI.h")
 elseif(APPLE)
-  list(APPEND SMDATA_ARCH_SOUND_SRC "arch/Sound/RageSoundDriver_AU.mm")
-  list(APPEND SMDATA_ARCH_SOUND_HPP "arch/Sound/RageSoundDriver_AU.h")
-else() # Unix
+  target_sources("${SM_EXE_NAME}" PRIVATE
+    "arch/Threads/Threads_Pthreads.cpp"
+    "arch/Threads/Threads_Pthreads.h"
+    "arch/Sound/RageSoundDriver_AU.mm"
+    "arch/Sound/RageSoundDriver_AU.h"
+    "arch/MemoryCard/MemoryCardDriverThreaded_MacOSX.cpp"
+    "arch/MemoryCard/MemoryCardDriverThreaded_MacOSX.h"
+    "arch/LowLevelWindow/LowLevelWindow_MacOSX.mm"
+    "arch/LowLevelWindow/LowLevelWindow_MacOSX.h"
+    "arch/LoadingWindow/LoadingWindow_Null.h"
+    "arch/LoadingWindow/LoadingWindow_MacOSX.mm"
+    "arch/LoadingWindow/LoadingWindow_MacOSX.h"
+    "arch/InputHandler/InputHandler_MacOSX_HID.mm"
+    "arch/InputHandler/InputHandler_NSEvent.mm"
+    "arch/InputHandler/InputHandler_MacOSX_HID.h"
+    "arch/InputHandler/InputHandler_NSEvent.hpp"
+    "arch/Dialog/DialogDriver_MacOSX.cpp"
+    "arch/Dialog/DialogDriver_MacOSX.h"
+    "arch/Socket/Socket_Posix.cpp"
+    "arch/ArchHooks/ArchHooks_MacOSX.mm"
+    "arch/ArchHooks/ArchHooks_MacOSX.h")
+else() # Linux / BSD
+  target_sources("${SM_EXE_NAME}" PRIVATE
+    "arch/Threads/Threads_Pthreads.cpp"
+    "arch/Threads/Threads_Pthreads.h"
+    "arch/LoadingWindow/LoadingWindow_Null.h"
+    "arch/Socket/Socket_Posix.cpp"
+    "arch/ArchHooks/ArchHooksUtil.cpp"
+    "arch/ArchHooks/ArchHooks_Unix.cpp"
+    "arch/ArchHooks/ArchHooks_Unix.h")
   if(HAS_PULSE)
-    list(APPEND SMDATA_ARCH_SOUND_SRC
-                "arch/Sound/RageSoundDriver_PulseAudio.cpp")
-    list(APPEND SMDATA_ARCH_SOUND_HPP "arch/Sound/RageSoundDriver_PulseAudio.h")
+    target_sources("${SM_EXE_NAME}" PRIVATE
+      "arch/Sound/RageSoundDriver_PulseAudio.cpp"
+      "arch/Sound/RageSoundDriver_PulseAudio.h")
   endif()
   if(HAS_ALSA)
-    list(APPEND SMDATA_ARCH_SOUND_SRC
-                "arch/Sound/ALSA9Dynamic.cpp"
-                "arch/Sound/ALSA9Helpers.cpp"
-                "arch/Sound/RageSoundDriver_ALSA9_Software.cpp")
-    list(APPEND SMDATA_ARCH_SOUND_HPP
-                "arch/Sound/ALSA9Dynamic.h"
-                "arch/Sound/ALSA9Functions.h"
-                "arch/Sound/ALSA9Helpers.h"
-                "arch/Sound/RageSoundDriver_ALSA9_Software.h")
+    target_sources("${SM_EXE_NAME}" PRIVATE
+      "arch/Sound/ALSA9Dynamic.cpp"
+      "arch/Sound/ALSA9Helpers.cpp"
+      "arch/Sound/RageSoundDriver_ALSA9_Software.cpp"
+      "arch/Sound/ALSA9Dynamic.h"
+      "arch/Sound/ALSA9Functions.h"
+      "arch/Sound/ALSA9Helpers.h"
+      "arch/Sound/RageSoundDriver_ALSA9_Software.h")
   endif()
   if(HAS_JACK)
-    list(APPEND SMDATA_ARCH_SOUND_SRC "arch/Sound/RageSoundDriver_JACK.cpp")
-    list(APPEND SMDATA_ARCH_SOUND_HPP "arch/Sound/RageSoundDriver_JACK.h")
+    target_sources("${SM_EXE_NAME}" PRIVATE
+      "arch/Sound/RageSoundDriver_JACK.cpp"
+      "arch/Sound/RageSoundDriver_JACK.h")
   endif()
-  if(HAS_OSS)
-    list(APPEND SMDATA_ARCH_SOUND_SRC "arch/Sound/RageSoundDriver_OSS.cpp")
-    list(APPEND SMDATA_ARCH_SOUND_HPP "arch/Sound/RageSoundDriver_OSS.h")
-  endif()
-endif()
-
-source_group("Arch Specific\\\\Sound"
-             FILES
-             ${SMDATA_ARCH_SOUND_SRC}
-             ${SMDATA_ARCH_SOUND_HPP})
-
-list(APPEND SMDATA_ARCH_MOVIE_TEXTURE_SRC
-            "arch/MovieTexture/MovieTexture.cpp"
-            "arch/MovieTexture/MovieTexture_FFMpeg.cpp"
-            "arch/MovieTexture/MovieTexture_Generic.cpp"
-            "arch/MovieTexture/MovieTexture_Null.cpp")
-
-list(APPEND SMDATA_ARCH_MOVIE_TEXTURE_HPP
-            "arch/MovieTexture/MovieTexture.h"
-            "arch/MovieTexture/MovieTexture_FFMpeg.h"
-            "arch/MovieTexture/MovieTexture_Generic.h"
-            "arch/MovieTexture/MovieTexture_Null.h")
-
-source_group("Arch Specific\\\\Movie Texture"
-             FILES
-             ${SMDATA_ARCH_MOVIE_TEXTURE_SRC}
-             ${SMDATA_ARCH_MOVIE_TEXTURE_HPP})
-
-list(APPEND SMDATA_ARCH_MEMORY_SRC "arch/MemoryCard/MemoryCardDriver.cpp"
-            "arch/MemoryCard/MemoryCardDriverThreaded_Folder.cpp")
-list(APPEND SMDATA_ARCH_MEMORY_HPP
-            "arch/MemoryCard/MemoryCardDriver.h"
-            "arch/MemoryCard/MemoryCardDriver_Null.h"
-            "arch/MemoryCard/MemoryCardDriverThreaded_Folder.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_MEMORY_SRC
-              "arch/MemoryCard/MemoryCardDriverThreaded_Windows.cpp")
-  list(APPEND SMDATA_ARCH_MEMORY_HPP
-              "arch/MemoryCard/MemoryCardDriverThreaded_Windows.h")
-elseif(APPLE)
-  list(APPEND SMDATA_ARCH_MEMORY_SRC
-              "arch/MemoryCard/MemoryCardDriverThreaded_MacOSX.cpp")
-  list(APPEND SMDATA_ARCH_MEMORY_HPP
-              "arch/MemoryCard/MemoryCardDriverThreaded_MacOSX.h")
-elseif(LINUX)
-  list(APPEND SMDATA_ARCH_MEMORY_SRC
-              "arch/MemoryCard/MemoryCardDriverThreaded_Linux.cpp")
-  list(APPEND SMDATA_ARCH_MEMORY_HPP
-              "arch/MemoryCard/MemoryCardDriverThreaded_Linux.h")
-endif()
-
-source_group("Arch Specific\\\\Memory Card"
-             FILES
-             ${SMDATA_ARCH_MEMORY_SRC}
-             ${SMDATA_ARCH_MEMORY_HPP})
-
-list(APPEND SMDATA_ARCH_LOWLEVEL_SRC "arch/LowLevelWindow/LowLevelWindow.cpp"
-            "arch/LowLevelWindow/LowLevelWindow_SDL.cpp")
-list(APPEND SMDATA_ARCH_LOWLEVEL_HPP "arch/LowLevelWindow/LowLevelWindow.h"
-            "arch/LowLevelWindow/LowLevelWindow_SDL.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_LOWLEVEL_SRC
-              "arch/LowLevelWindow/LowLevelWindow_Win32.cpp")
-  list(APPEND SMDATA_ARCH_LOWLEVEL_HPP
-              "arch/LowLevelWindow/LowLevelWindow_Win32.h")
-elseif(APPLE)
-  list(APPEND SMDATA_ARCH_LOWLEVEL_SRC
-              "arch/LowLevelWindow/LowLevelWindow_MacOSX.mm")
-  list(APPEND SMDATA_ARCH_LOWLEVEL_HPP
-              "arch/LowLevelWindow/LowLevelWindow_MacOSX.h")
-else(UNIX)
-  if(X11_FOUND)
-    list(APPEND SMDATA_ARCH_LOWLEVEL_SRC
-                "arch/LowLevelWindow/LowLevelWindow_X11.cpp")
-    list(APPEND SMDATA_ARCH_LOWLEVEL_HPP
-                "arch/LowLevelWindow/LowLevelWindow_X11.h")
-  endif()
-endif(WIN32)
-
-source_group("Arch Specific\\\\Low Level Window"
-             FILES
-             ${SMDATA_ARCH_LOWLEVEL_SRC}
-             ${SMDATA_ARCH_LOWLEVEL_HPP})
-
-list(APPEND SMDATA_ARCH_LOADING_SRC "arch/LoadingWindow/LoadingWindow.cpp")
-list(APPEND SMDATA_ARCH_LOADING_HPP "arch/LoadingWindow/LoadingWindow.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_LOADING_SRC
-              "arch/LoadingWindow/LoadingWindow_Win32.cpp")
-  list(
-    APPEND SMDATA_ARCH_LOADING_HPP "arch/LoadingWindow/LoadingWindow_Win32.h")
-else()
-  list(APPEND SMDATA_ARCH_LOADING_HPP "arch/LoadingWindow/LoadingWindow_Null.h")
-  if(APPLE)
-    list(APPEND SMDATA_ARCH_LOADING_SRC
-                "arch/LoadingWindow/LoadingWindow_MacOSX.mm")
-    list(APPEND SMDATA_ARCH_LOADING_HPP
-                "arch/LoadingWindow/LoadingWindow_MacOSX.h")
-  elseif(LINUX)
-    include(CMakeData-gtk.cmake)
-  endif()
-endif()
-
-source_group("Arch Specific\\\\Loading Window"
-             FILES
-             ${SMDATA_ARCH_LOADING_SRC}
-             ${SMDATA_ARCH_LOADING_HPP})
-
-list(APPEND SMDATA_ARCH_LIGHTS_SRC "arch/Lights/LightsDriver.cpp"
-            "arch/Lights/LightsDriver_Export.cpp"
-            "arch/Lights/LightsDriver_SextetStream.cpp"
-            "arch/Lights/LightsDriver_SystemMessage.cpp"
-            "arch/Lights/LightsDriver_stac.cpp"
-            "arch/Lights/LightsDriver_stac2.cpp"
-            "arch/Lights/LightsDriver_snek.cpp"
-            "arch/Lights/LightsDriver_fusion.cpp"
-            "arch/Lights/LightsDriver_MinimaidHID.cpp"
-            "arch/Lights/LightsDriver_PacDrive.cpp"
-            "arch/Lights/LightsDriver_gpb.cpp"
-            "arch/Lights/LightsDriver_HidBlueDot.cpp")
-list(APPEND SMDATA_ARCH_LIGHTS_HPP "arch/Lights/LightsDriver.h"
-            "arch/Lights/LightsDriver_Export.h"
-            "arch/Lights/LightsDriver_SextetStream.h"
-            "arch/Lights/LightsDriver_SystemMessage.h"
-            "arch/Lights/SextetUtils.h"
-            "arch/Lights/LightsDriver_stac.h"
-            "arch/Lights/LightsDriver_stac2.h"
-            "arch/Lights/LightsDriver_snek.h"
-            "arch/Lights/LightsDriver_fusion.h"
-            "arch/Lights/LightsDriver_MinimaidHID.cpp"
-            "arch/Lights/LightsDriver_PacDrive.h"
-            "arch/Lights/LightsDriver_gpb.h"
-            "arch/Lights/LightsDriver_HidBlueDot.h")
-
-# TODO: Confirm if Apple can use the export.
-if(NOT APPLE)
-  if(WIN32)
-    list(APPEND SMDATA_ARCH_LIGHTS_SRC
-                "arch/Lights/LightsDriver_Win32Serial.cpp"
-                "arch/Lights/LightsDriver_Win32Parallel.cpp"
-                "arch/Lights/LightsDriver_Win32Minimaid.cpp")
-    list(APPEND SMDATA_ARCH_LIGHTS_HPP
-                "arch/Lights/LightsDriver_Win32Parallel.h"
-                "arch/Lights/LightsDriver_Win32Serial.h"
-                "arch/Lights/LightsDriver_Win32Minimaid.h")
-  else() # Unix/Linux TODO: Linux HAVE_PARALLEL_PORT
-    if(LINUX)
-      list(APPEND SMDATA_LINK_LIB "udev")
-      list(APPEND SMDATA_ARCH_LIGHTS_SRC
-                  "arch/Lights/LightsDriver_Linux_Leds.cpp"
-                  "arch/Lights/LightsDriver_Linux_PIUIO.cpp"
-                  "arch/Lights/LightsDriver_Linux_PIUIO_Leds.cpp"
-                  "arch/Lights/LightsDriver_Linux_PIUIOBTN_Leds.cpp"
-                  "arch/Lights/LightsDriver_Linux_ITGIO.cpp"
-                  "arch/Lights/LightsDriver_GenericHID.cpp"
-                  "arch/Lights/LightsDriver_LinuxWeedTech.cpp")
-      list(APPEND SMDATA_ARCH_LIGHTS_HPP
-                  "arch/Lights/LightsDriver_Linux_Leds.h"
-                  "arch/Lights/LightsDriver_Linux_PIUIO.h"
-                  "arch/Lights/LightsDriver_Linux_PIUIO_Leds.h"
-                  "arch/Lights/LightsDriver_Linux_PIUIOBTN_Leds.h"
-                  "arch/Lights/LightsDriver_Linux_ITGIO.h"
-                  "arch/Lights/LightsDriver_GenericHID.h"
-                  "arch/Lights/LightsDriver_LinuxWeedTech.h")
-
-      if(WITH_PARALLEL_PORT)
-        list(APPEND SMDATA_ARCH_LIGHTS_SRC
-                    "arch/Lights/LightsDriver_LinuxParallel.cpp")
-        list(APPEND SMDATA_ARCH_LIGHTS_HPP
-                    "arch/Lights/LightsDriver_LinuxParallel.h")
-      endif()
-    endif()
-  endif(WIN32)
-endif(NOT APPLE)
-
-source_group("Arch Specific\\\\Lights"
-             FILES
-             ${SMDATA_ARCH_LIGHTS_SRC}
-             ${SMDATA_ARCH_LIGHTS_HPP})
-
-list(APPEND SMDATA_ARCH_INPUT_SRC "arch/InputHandler/InputHandler.cpp"
-            "arch/InputHandler/InputHandler_PumpHID.cpp"
-            "arch/InputHandler/InputHandler_MonkeyKeyboard.cpp"
-            "arch/InputHandler/InputHandler_SDL.cpp")
-list(APPEND SMDATA_ARCH_INPUT_HPP "arch/InputHandler/InputHandler.h"
-            "arch/InputHandler/InputHandler_PumpHID.h"
-            "arch/InputHandler/InputHandler_MonkeyKeyboard.h"
-            "arch/InputHandler/InputHandler_SDL.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_INPUT_SRC
-              "arch/InputHandler/InputHandler_DirectInput.cpp"
-              "arch/InputHandler/InputHandler_DirectInputHelper.cpp"
-              "arch/InputHandler/InputHandler_Win32_MIDI.cpp"
-              "arch/InputHandler/InputHandler_Win32_Para.cpp"
-              "arch/InputHandler/InputHandler_Win32_Pump.cpp"
-              "arch/InputHandler/InputHandler_Win32_RTIO.cpp"
-              "arch/InputHandler/InputHandler_Win32_ddrio.cpp")
-  list(APPEND SMDATA_ARCH_INPUT_HPP
-              "arch/InputHandler/InputHandler_DirectInput.h"
-              "arch/InputHandler/InputHandler_DirectInputHelper.h"
-              "arch/InputHandler/InputHandler_Win32_MIDI.h"
-              "arch/InputHandler/InputHandler_Win32_Para.h"
-              "arch/InputHandler/InputHandler_Win32_Pump.h"
-              "arch/InputHandler/InputHandler_Win32_RTIO.h"
-              "arch/InputHandler/InputHandler_Win32_ddrio.h")
-  if(NOT MSVC)
-    list(APPEND SMDATA_ARCH_INPUT_SRC
-                "arch/InputHandler/InputHandler_SextetStream.cpp")
-    list(APPEND SMDATA_ARCH_INPUT_HPP
-                "arch/InputHandler/InputHandler_SextetStream.h")
-  endif()
-elseif(APPLE)
-  list(APPEND SMDATA_ARCH_INPUT_SRC
-              "arch/InputHandler/InputHandler_MacOSX_HID.mm"
-              "arch/InputHandler/InputHandler_NSEvent.mm")
-  list(APPEND SMDATA_ARCH_INPUT_HPP
-              "arch/InputHandler/InputHandler_MacOSX_HID.h"
-              "arch/InputHandler/InputHandler_NSEvent.hpp")
-else() # Unix/Linux
   if(LINUX)
-    list(APPEND SMDATA_ARCH_INPUT_SRC
-                "arch/InputHandler/LinuxInputManager.cpp"
-                "arch/InputHandler/InputHandler_Linux_Joystick.cpp"
-                "arch/InputHandler/InputHandler_Linux_Event.cpp"
-                "arch/InputHandler/InputHandler_Linux_PIUIO.cpp"
-                "arch/InputHandler/InputHandler_SextetStream.cpp")
-    list(APPEND SMDATA_ARCH_INPUT_SRC
-                "arch/InputHandler/LinuxInputManager.h"
-                "arch/InputHandler/InputHandler_Linux_Joystick.h"
-                "arch/InputHandler/InputHandler_Linux_Event.h"
-                "arch/InputHandler/InputHandler_Linux_PIUIO.h"
-                "arch/InputHandler/InputHandler_SextetStream.h")
+    target_sources("${SM_EXE_NAME}" PRIVATE
+      "arch/MemoryCard/MemoryCardDriverThreaded_Linux.cpp"
+      "arch/MemoryCard/MemoryCardDriverThreaded_Linux.h"
+      "arch/Lights/LightsDriver_Linux_Leds.cpp"
+      "arch/Lights/LightsDriver_Linux_PIUIO.cpp"
+      "arch/Lights/LightsDriver_Linux_PIUIO_Leds.cpp"
+      "arch/Lights/LightsDriver_Linux_PIUIOBTN_Leds.cpp"
+      "arch/Lights/LightsDriver_Linux_ITGIO.cpp"
+      "arch/Lights/LightsDriver_GenericHID.cpp"
+      "arch/Lights/LightsDriver_LinuxWeedTech.cpp"
+      "arch/Lights/LightsDriver_Linux_Leds.h"
+      "arch/Lights/LightsDriver_Linux_PIUIO.h"
+      "arch/Lights/LightsDriver_Linux_PIUIO_Leds.h"
+      "arch/Lights/LightsDriver_Linux_PIUIOBTN_Leds.h"
+      "arch/Lights/LightsDriver_Linux_ITGIO.h"
+      "arch/Lights/LightsDriver_GenericHID.h"
+      "arch/Lights/LightsDriver_LinuxWeedTech.h"
+      "arch/InputHandler/LinuxInputManager.cpp"
+      "arch/InputHandler/InputHandler_Linux_Joystick.cpp"
+      "arch/InputHandler/InputHandler_Linux_Event.cpp"
+      "arch/InputHandler/InputHandler_Linux_PIUIO.cpp"
+      "arch/InputHandler/InputHandler_SextetStream.cpp"
+      "arch/InputHandler/LinuxInputManager.h"
+      "arch/InputHandler/InputHandler_Linux_Joystick.h"
+      "arch/InputHandler/InputHandler_Linux_Event.h"
+      "arch/InputHandler/InputHandler_Linux_PIUIO.h"
+      "arch/InputHandler/InputHandler_SextetStream.h")
+    target_link_libraries("${SM_EXE_NAME}" PRIVATE PkgConfig::UDEV)
+    if(HAS_GTK3)
+      include(CMakeData-gtk.cmake)
+    endif()
   endif()
-  if(X11_FOUND)
-    list(APPEND SMDATA_ARCH_INPUT_SRC "arch/InputHandler/InputHandler_X11.cpp")
-    list(APPEND SMDATA_ARCH_INPUT_HPP "arch/InputHandler/InputHandler_X11.h")
+  if(HAS_X11)
+    target_sources("${SM_EXE_NAME}" PRIVATE
+      "arch/LowLevelWindow/LowLevelWindow_X11.cpp"
+      "arch/LowLevelWindow/LowLevelWindow_X11.h"
+      "arch/InputHandler/InputHandler_X11.cpp"
+      "arch/InputHandler/InputHandler_X11.h")
   endif()
 endif()
-
-source_group("Arch Specific\\\\Input Handler"
-             FILES
-             ${SMDATA_ARCH_INPUT_SRC}
-             ${SMDATA_ARCH_INPUT_HPP})
-
-list(APPEND SMDATA_ARCH_DIALOG_SRC "arch/Dialog/Dialog.cpp"
-            "arch/Dialog/DialogDriver.cpp")
-list(APPEND SMDATA_ARCH_DIALOG_HPP "arch/Dialog/Dialog.h"
-            "arch/Dialog/DialogDriver.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_DIALOG_SRC "arch/Dialog/DialogDriver_Win32.cpp")
-  list(APPEND SMDATA_ARCH_DIALOG_HPP "arch/Dialog/DialogDriver_Win32.h")
-elseif(APPLE)
-  list(APPEND SMDATA_ARCH_DIALOG_SRC "arch/Dialog/DialogDriver_MacOSX.cpp")
-  list(APPEND SMDATA_ARCH_DIALOG_HPP "arch/Dialog/DialogDriver_MacOSX.h")
-endif(WIN32)
-
-source_group("Arch Specific\\\\Dialog"
-             FILES
-             ${SMDATA_ARCH_DIALOG_SRC}
-             ${SMDATA_ARCH_DIALOG_HPP})
-
-list(APPEND SMDATA_ARCH_SOCKET_HPP
-            "arch/Socket/Socket.h")
-
-if(WIN32)
-  list(APPEND SMDATA_ARCH_SOCKET_SRC
-              "arch/Socket/Socket_Windows.cpp")
-else(WIN32)
-  list(APPEND SMDATA_ARCH_SOCKET_SRC
-              "arch/Socket/Socket_Posix.cpp")
-endif()
-
-source_group("Arch Specific\\\\Socket"
-             FILES
-             ${SMDATA_ARCH_SOCKET_SRC}
-             ${SMDATA_ARCH_SOCKET_HPP})
-
-list(APPEND SMDATA_ARCH_HOOKS_SRC "arch/ArchHooks/ArchHooks.cpp")
-list(APPEND SMDATA_ARCH_HOOKS_HPP "arch/ArchHooks/ArchHooks.h")
-
-if(NOT APPLE)
-  list(APPEND SMDATA_ARCH_HOOKS_SRC "arch/ArchHooks/ArchHooksUtil.cpp")
-  if(WIN32)
-    list(APPEND SMDATA_ARCH_HOOKS_SRC "arch/ArchHooks/ArchHooks_Win32.cpp"
-                "arch/ArchHooks/ArchHooks_Win32Static.cpp")
-    list(APPEND SMDATA_ARCH_HOOKS_HPP "arch/ArchHooks/ArchHooks_Win32.h")
-  else(WIN32)
-    list(APPEND SMDATA_ARCH_HOOKS_SRC "arch/ArchHooks/ArchHooks_Unix.cpp")
-    list(APPEND SMDATA_ARCH_HOOKS_HPP "arch/ArchHooks/ArchHooks_Unix.h")
-  endif(WIN32)
-else(NOT APPLE)
-  list(APPEND SMDATA_ARCH_HOOKS_SRC "arch/ArchHooks/ArchHooks_MacOSX.mm")
-  list(APPEND SMDATA_ARCH_HOOKS_HPP "arch/ArchHooks/ArchHooks_MacOSX.h")
-endif(NOT APPLE)
-
-source_group("Arch Specific\\\\Arch Hooks"
-             FILES
-             ${SMDATA_ARCH_HOOKS_SRC}
-             ${SMDATA_ARCH_HOOKS_HPP})
-
-list(APPEND SMDATA_ALL_ARCH_SRC
-            ${SMDATA_ARCH_SRC}
-            ${SMDATA_ARCH_DIALOG_SRC}
-            ${SMDATA_ARCH_HOOKS_SRC}
-            ${SMDATA_ARCH_INPUT_SRC}
-            ${SMDATA_ARCH_LIGHTS_SRC}
-            ${SMDATA_ARCH_LOADING_SRC}
-            ${SMDATA_ARCH_LOWLEVEL_SRC}
-            ${SMDATA_ARCH_MEMORY_SRC}
-            ${SMDATA_ARCH_MOVIE_TEXTURE_SRC}
-            ${SMDATA_ARCH_SOCKET_SRC}
-            ${SMDATA_ARCH_SOUND_SRC}
-            ${SMDATA_ARCH_THREADS_SRC})
-list(APPEND SMDATA_ALL_ARCH_HPP
-            ${SMDATA_ARCH_HPP}
-            ${SMDATA_ARCH_DIALOG_HPP}
-            ${SMDATA_ARCH_HOOKS_HPP}
-            ${SMDATA_ARCH_INPUT_HPP}
-            ${SMDATA_ARCH_LIGHTS_HPP}
-            ${SMDATA_ARCH_LOADING_HPP}
-            ${SMDATA_ARCH_LOWLEVEL_HPP}
-            ${SMDATA_ARCH_MEMORY_HPP}
-            ${SMDATA_ARCH_MOVIE_TEXTURE_HPP}
-            ${SMDATA_ARCH_SOCKET_HPP}
-            ${SMDATA_ARCH_SOUND_HPP}
-            ${SMDATA_ARCH_THREADS_HPP})

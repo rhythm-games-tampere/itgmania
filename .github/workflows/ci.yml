@@ -35,6 +35,7 @@ jobs:
           os: ${{ matrix.os }}
           ccache: 'true'
       - name: Configure
-        run: cmake -B build -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ${{ env.CMAKE_FLAGS }}
+        run: cmake --preset ${{ env.PRESET }} -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+      # Debug: optimized GCC builds still warn (-Wmaybe-uninitialized and co).
       - name: Build
-        run: cmake --build build ${{ env.CMAKE_BUILD_FLAGS }}
+        run: cmake --build --preset ${{ env.PRESET }} --config Debug

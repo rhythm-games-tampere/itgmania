@@ -6,8 +6,9 @@ on:
       - 'Themes/_fallback/**'
       - 'NoteSkins/**'
       - 'Utils/RenderTest/**'
-      - 'CMakeLists.txt'
-      - '*.cmake'
+      - '**/CMakeLists.txt'
+      - '**.cmake'
+      - 'CMakePresets.json'
       - '.github/workflows/rendertest.yml'
   pull_request:
     paths:
@@ -16,8 +17,9 @@ on:
       - 'Themes/_fallback/**'
       - 'NoteSkins/**'
       - 'Utils/RenderTest/**'
-      - 'CMakeLists.txt'
-      - '*.cmake'
+      - '**/CMakeLists.txt'
+      - '**.cmake'
+      - 'CMakePresets.json'
       - '.github/workflows/rendertest.yml'
   workflow_dispatch:
 
@@ -66,9 +68,9 @@ jobs:
       - name: Install Pillow
         run: python -m pip install pillow
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ${{ env.CMAKE_FLAGS }}
+        run: cmake --preset ${{ env.PRESET }}
       - name: Build
-        run: cmake --build build --config Release ${{ env.CMAKE_BUILD_FLAGS }}
+        run: cmake --build --preset ${{ env.PRESET }}
 
       - name: Install Mesa (Linux)
         if: runner.os == 'Linux'

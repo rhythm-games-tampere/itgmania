@@ -32,7 +32,7 @@ At first, you have to install CMake.
 
 #### All OSes
 
-The common way of installing CMake is to go to [CMake's download page](http://www.cmake.org/download/). At this time of writing, the latest version is 3.23.2. The minimum version supported at this time is 3.20.
+The common way of installing CMake is to go to [CMake's download page](http://www.cmake.org/download/). The minimum version supported is 3.28. The presets below also need [Ninja](https://ninja-build.org/) (`ninja-build` on Debian/Ubuntu, `brew install ninja` on macOS; Visual Studio ships its own).
 
 If this approach is used, consider using the binary distributions. Most should also provide a friendly GUI interface.
 
@@ -50,57 +50,16 @@ There are many package managers available for Linux. Look at your manual for mor
 
 ### CMake Usage
 
-There are two ways of working with cmake: the command line and the GUI.
+The project ships a `CMakePresets.json` with one preset per platform: `windows`, `vs2022`, `linux`, `macos-arm64` and `macos-x64`. Each builds into `Build/<preset>`. From the `itgmania` directory (not `src`):
 
-#### CMake Command Line
+```sh
+cmake --preset linux             # configure
+cmake --build --preset linux     # build Release
+```
 
-If you are unfamiliar with cmake, first run `cmake --help`. This will present a list of options and generators.
-The generators are used for setting up your project.
+Release and RelWithDebInfo builds use link-time optimization. For another configuration, add `--config Debug` (or `RelWithDebInfo`, `MinSizeRel`) to the build command. Options such as `-DWITH_CLUB_FANTASTIC=ON` go on the configure command.
 
-The following steps will assume you operate from the ITGmania project's Build directory.
-
-For the first setup, you will want to run this command:
-
-`cmake -G {YourGeneratorHere} .. && cmake ..`
-
-Replace {YourGeneratorHere} with one of the generator choices from `cmake --help`.
-
-If you are building on Windows and expecting your final executable to be able to run on Windows XP, append an additional parameter `-T "v140_xp"` (or `-T "v120_xp"`, depending on which version of Visual Studio you have installed) to your command line.
-
-If any cmake project file changes, you can just run `cmake .. && cmake ..` to get up to date.
-If this by itself doesn't work, you may have to clean the cmake cache.
-Use `rm -rf CMakeCache.txt CMakeScripts/ CMakeFiles/ cmake_install.txt` to do that, and then run the generator command again as specified above.
-
-The reason for running cmake at least twice is to make sure that all of the variables get set up appropriately.
-
-Environment variables can be modified at this stage. If you want to pass `-ggdb` or any other flag that is not set up by default,
-utilize `CXXFLAGS` or any appropriate variable.
-
-#### CMake GUI
-
-For those that use the GUI to work with cmake, you need to specify where the source code is and where the binaries will be built.
-The first one, counter-intuitively, is actually the parent directory of this one: the main ITGmania directory.
-The second one for building can be this directory.
-
-Upon setting the source and build directories, you should `Configure` the build.
-If no errors show up, you can hit `Generate` until none of the rows on the GUI are red.
-
-If the cmake project file changes, you can just generate the build to get up to date.
-If this by itself doesn't work, you may have to clean the cmake cache.
-Go to File -> Delete Cache, and then run the `Configure` and `Generate` steps again.
-
-### Release vs Debug
-
-If you are generating makefiles with cmake, you will also need to specify your build type.
-Most users will want to use `RELEASE` while some developers may want to use `DEBUG`.
-
-When generating your cmake files for the first time (or after any cache delete),
-pass in `-DCMAKE_BUILD_TYPE=Debug` for a debug build. We have `RelWithDbgInfo` and `MinSizeRel` builds available as well.
-
-It is advised to clean your cmake cache if you switch build types.
-
-Note that if you use an IDE like Visual Studio or Xcode, you do not need to worry about setting the build type.
-You can edit the build type directly in the IDE.
+IDEs that understand presets (Visual Studio, VS Code, CLion) list them directly. The CMake GUI shows them in its preset drop-down.
 
 ### Compiling ITGmania
 
@@ -120,7 +79,7 @@ The **Windows SDK** is also required, so click the _Individual components_ secti
 
 ![image](https://github.com/user-attachments/assets/8cf1b443-bfbe-4c2f-af39-a904324956f5)
 
-Confirm the installation. Once everything is installed, you can open **StepMania.sln** with Visual Studio. Set the build type to **Release** and press the hollow green button (or Ctrl+F5) to begin building.
+Confirm the installation. Then either open the `itgmania` folder in Visual Studio, which picks up the presets, or run `cmake --preset vs2022` and open **Build/vs2022/ITGmania.sln**. Set the build type to **Release** and press the hollow green button (or Ctrl+F5) to begin building. From a *Developer Command Prompt*, `cmake --preset windows` followed by `cmake --build --preset windows` builds with Ninja instead. The executable is written to `Program/`.
 
 ![image](https://github.com/user-attachments/assets/f9235e14-bfc8-4f8f-8b30-9706dfb3bcc6)
 
@@ -128,16 +87,18 @@ Confirm the installation. Once everything is installed, you can open **StepMania
 
 For macOS, you can either install the full Xcode package or the Xcode Command Line Tools by itself. If you install Xcode from the App Store, it will install everything needed.
 
-When compiling for macOS, the build command differs depending on whether you are compiling for Intel (`x86_64`) or Apple Silicon (`arm64`). From the `itgmania` directory (not `src`), run:
+When compiling for macOS, the preset differs depending on whether you are compiling for Apple Silicon (`macos-arm64`) or Intel (`macos-x64`). From the `itgmania` directory (not `src`), run:
 
-- Apple Silicon: `cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"`
-- Intel: `cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"`
+```sh
+cmake --preset macos-arm64
+cmake --build --preset macos-arm64
+```
 
-Afterwards, run `cmake --build build --parallel "$(sysctl -n hw.logicalcpu)"`. After this step is done, the newly built ITGmania.app will be in your `itgmania` directory.
+After this step is done, the newly built ITGmania.app will be in your `itgmania` directory. To work in Xcode, configure with `cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES=arm64` instead.
 
 #### Linux
 
-From the `itgmania` directory (not `src`), run `cmake -B build` followed by `sudo make install`. The `itgmania` executable will be in the same directory you are in, so you can type `./itgmania` to run the game.
+From the `itgmania` directory (not `src`), run `cmake --preset linux` followed by `cmake --build --preset linux`. The `itgmania` executable will be in the same directory you are in, so you can type `./itgmania` to run the game.
 
 ### Installing ITGmania
 
@@ -155,7 +116,7 @@ The `ITGmania.app` package can be copied to `/Applications` and it will work as 
 
 #### Linux
 
-After installing, run `sudo make install`. The files will be placed in the location specified:
+After building, run `sudo cmake --install Build/linux --config Release`. The files will be placed in the location specified:
 by default, that is now `/usr/local/itgmania`.
 
 ### Last Words

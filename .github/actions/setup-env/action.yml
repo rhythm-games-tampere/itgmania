@@ -16,7 +16,7 @@ runs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libasound2-dev libgl-dev libgtk-3-dev libjack-dev libpulse-dev libudev-dev libxinerama-dev libx11-dev libxrandr-dev libxtst-dev nasm libwayland-dev libxkbcommon-dev libegl-dev libdecor-0-dev libxi-dev libxcursor-dev libxfixes-dev
+        sudo apt-get install -y libasound2-dev libgl-dev libgtk-3-dev libjack-dev libpulse-dev libudev-dev libxinerama-dev libx11-dev libxrandr-dev libxtst-dev nasm libwayland-dev libxkbcommon-dev libegl-dev libdecor-0-dev libxi-dev libxcursor-dev libxfixes-dev ninja-build
         if [ "${{ inputs.ccache }}" = "true" ]; then
           sudo apt-get install -y ccache
         fi
@@ -25,7 +25,7 @@ runs:
     - name: Install macOS dependencies
       if: runner.os == 'macOS'
       run: |
-        brew install nasm
+        brew install nasm ninja
         if [ "${{ inputs.ccache }}" = "true" ]; then
           brew install ccache
         fi
@@ -57,38 +57,31 @@ runs:
         echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
       shell: bash
 
-    - name: Add msbuild to PATH
+    # Ninja on Windows needs the MSVC environment (cl, link, rc on PATH).
+    - name: Set up MSVC environment
       if: runner.os == 'Windows'
-      uses: microsoft/setup-msbuild@v3
+      uses: ilammy/msvc-dev-cmd@v1
       with:
-        msbuild-architecture: x64
+        arch: x64
 
-    - name: Set CMake environment variables (Linux)
-      if: runner.os == 'Linux'
+    # PRESET names the CMakePresets.json configure and build preset; the ci-
+    # variants add ccache. Packages land in Build/<preset>.
+    - name: Pick the CMake preset
       run: |
-        echo "CMAKE_BUILD_FLAGS=--parallel $(nproc)" >> $GITHUB_ENV
-        echo "ARTIFACT_PATH=build/ITGmania-*.tar.gz" >> $GITHUB_ENV
+        case "${{ inputs.os }}" in
+          ubuntu-*)        preset=linux ;;
+          macos-15-intel)  preset=macos-x64 ;;
+          macos-*)         preset=macos-arm64 ;;
+          windows-*)       preset=windows ;;
+        esac
+        if [ "${{ inputs.ccache }}" = "true" ]; then
+          preset="ci-$preset"
+        fi
+        case "$preset" in
+          *linux)   ext=.tar.gz ;;
+          *macos-*) ext=.dmg ;;
+          *)        ext= ;;
+        esac
+        echo "PRESET=$preset" >> "$GITHUB_ENV"
+        echo "ARTIFACT_PATH=Build/$preset/ITGmania-*$ext" >> "$GITHUB_ENV"
       shell: bash
-
-    - name: Set CMake environment variables (macOS M1)
-      if: inputs.os == 'macos-15'
-      run: |
-        echo "CMAKE_FLAGS=-DCMAKE_OSX_ARCHITECTURES=arm64" >> $GITHUB_ENV
-        echo "CMAKE_BUILD_FLAGS=--parallel $(sysctl -n hw.logicalcpu)" >> $GITHUB_ENV
-        echo "ARTIFACT_PATH=build/ITGmania-*.dmg" >> $GITHUB_ENV
-      shell: bash
-
-    - name: Set CMake environment variables (macOS Intel)
-      if: inputs.os == 'macos-15-intel'
-      run: |
-        echo "CMAKE_FLAGS=-DCMAKE_OSX_ARCHITECTURES=x86_64" >> $GITHUB_ENV
-        echo "CMAKE_BUILD_FLAGS=--parallel $(sysctl -n hw.logicalcpu)" >> $GITHUB_ENV
-        echo "ARTIFACT_PATH=build/ITGmania-*.dmg" >> $GITHUB_ENV
-      shell: bash
-
-    - name: Set CMake environment variables (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        echo "CMAKE_BUILD_FLAGS=--parallel $env:NUMBER_OF_PROCESSORS" >> $env:GITHUB_ENV
-        echo "ARTIFACT_PATH=build/ITGmania-*" >> $env:GITHUB_ENV
-      shell: pwsh

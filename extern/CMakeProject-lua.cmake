@@ -53,18 +53,10 @@ set(LUA_HPP
     "lua-5.1/src/lvm.h"
     "lua-5.1/src/lzio.h")
 
-source_group("" FILES ${LUA_SRC})
-source_group("" FILES ${LUA_HPP})
-
 add_library("lua-5.1" STATIC ${LUA_SRC} ${LUA_HPP})
+target_include_directories("lua-5.1" PUBLIC "lua-5.1/src")
 
-set_property(TARGET "lua-5.1" PROPERTY FOLDER "External Libraries")
-
-# include_directories(src)
-
+# Lua errors unwind with C++ exceptions on MSVC and with longjmp elsewhere.
 if(MSVC)
-  target_compile_definitions("lua-5.1" PRIVATE _CRT_SECURE_NO_WARNINGS)
   set_source_files_properties(${LUA_SRC} PROPERTIES LANGUAGE CXX)
-endif(MSVC)
-
-disable_project_warnings("lua-5.1")
+endif()

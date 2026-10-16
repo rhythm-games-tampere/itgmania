@@ -1,9 +1,8 @@
-# Set up version numbers according to the new scheme.
-set(SM_VERSION_MAJOR 1)
-set(SM_VERSION_MINOR 3)
-set(SM_VERSION_PATCH 0)
-set(SM_VERSION_TRADITIONAL
-    "${SM_VERSION_MAJOR}.${SM_VERSION_MINOR}.${SM_VERSION_PATCH}")
+# The version itself lives in project() in the top-level CMakeLists.txt.
+set(SM_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(SM_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(SM_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(SM_VERSION_TRADITIONAL "${PROJECT_VERSION}")
 
 execute_process(COMMAND git rev-parse --short HEAD
                 WORKING_DIRECTORY "${SM_ROOT_DIR}"

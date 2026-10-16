@@ -60,19 +60,9 @@ set(VORBIS_HPP "vorbis/lib/backends.h"
                "vorbis/lib/modes/setup_X.h"
                "vorbis/lib/window.h")
 
-source_group("Source Files" FILES ${VORBIS_SRC})
-source_group("Header Files" FILES ${VORBIS_HPP})
-
 add_library("vorbis" STATIC ${VORBIS_SRC} ${VORBIS_HPP})
 
-set_property(TARGET "vorbis" PROPERTY FOLDER "External Libraries")
+target_include_directories("vorbis" PUBLIC "vorbis/include")
+target_include_directories("vorbis" PRIVATE "vorbis/lib")
 
-disable_project_warnings("vorbis")
-
-target_include_directories("vorbis" PUBLIC
-  "ogg"
-  "vorbis/lib"
-  "vorbis/include"
-)
-
-target_link_libraries("vorbis" "ogg")
+target_link_libraries("vorbis" PUBLIC "ogg")

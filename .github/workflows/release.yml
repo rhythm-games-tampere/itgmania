@@ -102,27 +102,19 @@ jobs:
       - name: Create nightly release
         if: (github.event_name == 'push' && github.ref_name == 'beta') || (github.event_name == 'workflow_dispatch' && inputs.release_type == 'nightly')
         run: >
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release 
-          -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On 
+          cmake --preset ${{ env.PRESET }}
+          -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On
           -DWITH_CLUB_FANTASTIC=${{ matrix.club_fantastic }}
-          ${{ env.CMAKE_FLAGS }}
 
       - name: Create full release
         if: (github.event_name == 'push' && github.ref_name == 'release') || (github.event_name == 'workflow_dispatch' && inputs.release_type == 'full')
         run: >
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release 
-          -DWITH_FULL_RELEASE=On -DWITH_NIGHTLY_RELEASE=Off 
+          cmake --preset ${{ env.PRESET }}
+          -DWITH_FULL_RELEASE=On -DWITH_NIGHTLY_RELEASE=Off
           -DWITH_CLUB_FANTASTIC=${{ matrix.club_fantastic }}
-          ${{ env.CMAKE_FLAGS }}
 
       - name: Create package
-        run: |
-          if [ "${{ matrix.os }}" = "windows-2022" ]; then
-            cmake --build build --config Release --target package
-          else
-            cmake --build build --target package
-          fi
-        shell: bash
+        run: cmake --build --preset ${{ env.PRESET }} --target package
 
       - name: Upload artifacts
         id: upload
