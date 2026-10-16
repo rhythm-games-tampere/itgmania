@@ -44,6 +44,56 @@ if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE
   endforeach()
 endif()
 
+# Profile-guided optimization of Release builds: build with GENERATE, play
+# (the instrumented game writes its profile to SM_PGO_DIR on exit), then
+# rebuild the same tree with USE.
+set(SM_PGO "OFF" CACHE STRING "Profile-guided optimization: OFF, GENERATE or USE")
+set_property(CACHE SM_PGO PROPERTY STRINGS OFF GENERATE USE)
+set(SM_PGO_DIR "${PROJECT_BINARY_DIR}/pgo" CACHE PATH
+    "Where the PGO profile is written (GENERATE) and read (USE)")
+set(SM_PGO_COMPILE_OPTIONS "")
+set(SM_PGO_LINK_OPTIONS "")
+if(SM_PGO STREQUAL "GENERATE" OR SM_PGO STREQUAL "USE")
+  file(MAKE_DIRECTORY "${SM_PGO_DIR}")
+  if(MSVC)
+    # MSVC instruments and optimizes at link time, so only the link changes,
+    # and it needs link-time code generation.
+    if(NOT CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
+      message(FATAL_ERROR "SM_PGO needs LTO for Release on MSVC.")
+    endif()
+    if(SM_PGO STREQUAL "GENERATE")
+      set(SM_PGO_LINK_OPTIONS "/GENPROFILE:PGD=${SM_PGO_DIR}/${SM_EXE_NAME}.pgd")
+    else()
+      set(SM_PGO_LINK_OPTIONS "/USEPROFILE:PGD=${SM_PGO_DIR}/${SM_EXE_NAME}.pgd")
+    endif()
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    if(SM_PGO STREQUAL "GENERATE")
+      # Atomic counters: the game updates them from several threads.
+      set(SM_PGO_COMPILE_OPTIONS "-fprofile-generate=${SM_PGO_DIR}"
+                                 "-fprofile-update=atomic")
+    else()
+      # Code the training run never reached is optimized as usual instead of
+      # for size.
+      set(SM_PGO_COMPILE_OPTIONS "-fprofile-use=${SM_PGO_DIR}"
+                                 "-fprofile-partial-training"
+                                 "-Wno-missing-profile")
+    endif()
+    set(SM_PGO_LINK_OPTIONS ${SM_PGO_COMPILE_OPTIONS})
+  else()
+    # ponytail: Clang needs an llvm-profdata merge step between the runs; add
+    # it when macOS releases want PGO.
+    message(FATAL_ERROR "SM_PGO supports MSVC and GCC only.")
+  endif()
+  list(TRANSFORM SM_PGO_COMPILE_OPTIONS PREPEND "$<$<CONFIG:Release>:")
+  list(TRANSFORM SM_PGO_COMPILE_OPTIONS APPEND ">")
+  list(TRANSFORM SM_PGO_LINK_OPTIONS PREPEND "$<$<CONFIG:Release>:")
+  list(TRANSFORM SM_PGO_LINK_OPTIONS APPEND ">")
+  # Every library linked into the game, not just its own sources.
+  add_compile_options(${SM_PGO_COMPILE_OPTIONS})
+elseif(NOT SM_PGO STREQUAL "OFF")
+  message(FATAL_ERROR "SM_PGO must be OFF, GENERATE or USE, not '${SM_PGO}'.")
+endif()
+
 # Groups a vendored target in IDEs and silences its warnings.
 function(sm_vendored_target target)
   set_target_properties("${target}" PROPERTIES FOLDER "External Libraries"

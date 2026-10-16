@@ -92,6 +92,24 @@ target_link_libraries("${SM_EXE_NAME}" PRIVATE
                       "SDL3::SDL3-static" "ffmpeg" ZLIB::ZLIBSTATIC
                       Threads::Threads)
 
+target_link_options("${SM_EXE_NAME}" PRIVATE ${SM_PGO_LINK_OPTIONS})
+if(MSVC AND SM_PGO STREQUAL "GENERATE")
+  # The instrumented game loads the PGO runtime from next to itself.
+  get_filename_component(SM_MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  find_file(SM_PGORT_DLL pgort140.dll HINTS "${SM_MSVC_BIN_DIR}" NO_DEFAULT_PATH
+            REQUIRED)
+  add_custom_command(TARGET "${SM_EXE_NAME}" POST_BUILD
+                     COMMAND "${CMAKE_COMMAND}" -E copy "${SM_PGORT_DLL}"
+                             "$<TARGET_FILE_DIR:${SM_EXE_NAME}>")
+elseif(MSVC AND SM_PGO STREQUAL "USE")
+  add_custom_command(TARGET "${SM_EXE_NAME}" PRE_LINK
+                     COMMAND "${CMAKE_COMMAND}"
+                             "-DEXE_DIR=$<TARGET_FILE_DIR:${SM_EXE_NAME}>"
+                             "-DNAME=$<TARGET_FILE_BASE_NAME:${SM_EXE_NAME}>"
+                             "-DPGO_DIR=${SM_PGO_DIR}"
+                             -P "${SM_CMAKE_DIR}/CollectPgc.cmake")
+endif()
+
 if(WIN32)
   target_compile_definitions("${SM_EXE_NAME}" PRIVATE
                              WINDOWS

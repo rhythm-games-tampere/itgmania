@@ -59,6 +59,8 @@ cmake --build --preset linux     # build Release
 
 Release and RelWithDebInfo builds use link-time optimization. For another configuration, add `--config Debug` (or `RelWithDebInfo`, `MinSizeRel`) to the build command. Options such as `-DWITH_CLUB_FANTASTIC=ON` go on the configure command.
 
+Release packages on Windows and Linux also use profile-guided optimization (MSVC and GCC only). To do the same locally, configure with `-DSM_PGO=GENERATE` and build, play a few songs with that (slower, instrumented) build or run `python Utils/RenderTest/rendertest.py run --theme "Themes/Simply Love"`, then configure the same build directory with `-DSM_PGO=USE` and build again. The profile is kept in `Build/<preset>/pgo`.
+
 IDEs that understand presets (Visual Studio, VS Code, CLion) list them directly. The CMake GUI shows them in its preset drop-down.
 
 ### Compiling ITGmania
