@@ -19,11 +19,13 @@
 #include "GameSoundManager.h"
 #include "GameState.h"
 #include "ImageCache.h"
+#include "IniFile.h"
 #include "InputEventPlus.h"
 #include "InputFilter.h"
 #include "InputMapper.h"
 #include "LocalizedString.h"
 #include "LuaManager.h"
+#include "MemoryCardManager.h"
 #include "MenuTimer.h"
 #include "MessageManager.h"
 #include "ModsGroup.h"
@@ -471,6 +473,13 @@ void ScreenSelectMusic::Update(float fDeltaTime) {
   }
 
   ScreenWithMenuElements::Update(fDeltaTime);
+
+  const std::string uid = m_nfcReader.TakeScan();
+  if (!uid.empty() && CanUseNFC()) {
+    Message scan("NFCCardScanned");
+    scan.SetParam("UID", uid);
+    MESSAGEMAN->Broadcast(scan);
+  }
 
   std::string songOrCoursePath = SYNCMAN->GetSongOrCourseToChangeTo();
 
@@ -2148,6 +2157,139 @@ bool ScreenSelectMusic::can_open_options_list(PlayerNumber pn) {
   return true;
 }
 
+bool ScreenSelectMusic::CanUseNFC() {
+#ifdef WITH_NFC
+  return SCREENMAN->GetTopScreen() == this && !IsTransitioning() &&
+         m_SelectionState == SelectionState_SelectingSong &&
+         !m_MusicWheel.WheelIsLocked();
+#else
+  return false;
+#endif
+}
+
+std::string ScreenSelectMusic::NFCProfile(const std::string& uid) const {
+  IniFile bindings;
+  std::string id;
+  bindings.ReadFile("Save/NFCCards.ini");
+  bindings.GetValue("Cards", uid, id);
+  return PROFILEMAN->GetLocalProfile(id) ? id : "";
+}
+
+bool ScreenSelectMusic::BindNFC(const std::string& uid, PlayerNumber pn) {
+  if (!CanUseNFC() || uid.empty() || !GAMESTATE->IsHumanPlayer(pn)) {
+    return false;
+  }
+
+  std::vector<std::string> ids;
+  PROFILEMAN->GetLocalProfileIDs(ids);
+
+  const auto* profile = PROFILEMAN->GetProfile(pn);
+  const auto it =
+      std::find_if(ids.begin(), ids.end(), [profile](const auto& id) {
+        return profile == PROFILEMAN->GetLocalProfile(id);
+      });
+
+  if (it == ids.end()) {
+    LOG->Warn(
+        "NFC: cannot bind card; selected player has no active local profile");
+    return false;
+  }
+
+  IniFile bindings;
+  bindings.ReadFile("Save/NFCCards.ini");
+  bindings.SetValue("Cards", uid, *it);
+
+  if (!bindings.WriteFile("Save/NFCCards.ini")) {
+    LOG->Warn("NFC: could not save card binding to Save/NFCCards.ini");
+    return false;
+  }
+
+  FILEMAN->FlushDirCache("Save/");
+
+  LOG->Info(
+      "NFC: bound card UID %s to local profile %s", uid.c_str(), it->c_str());
+
+  return true;
+}
+
+bool ScreenSelectMusic::SwitchNFCProfile(
+    const std::string& uid, PlayerNumber pn) {
+  if (!CanUseNFC()) {
+    return false;
+  }
+
+  const std::string id = NFCProfile(uid);
+  if (id.empty()) {
+    return false;
+  }
+
+  // Join before changing either profile, so an unavailable side or missing
+  // credit cannot detach the card's profile from its current player.
+  if (!GAMESTATE->IsHumanPlayer(pn) &&
+      (!GAMESTATE->JoinInput(pn) || !GAMESTATE->IsHumanPlayer(pn))) {
+    return false;
+  }
+
+  PlayerNumber source = PLAYER_INVALID;
+
+  FOREACH_HumanPlayer(other) {
+    if (PROFILEMAN->GetProfile(other) == PROFILEMAN->GetLocalProfile(id)) {
+      if (other == pn) {
+        LOG->Info(
+            "NFC: local profile %s is already active on P%d", id.c_str(),
+            pn + 1);
+        SCREENMAN->RefreshCreditsMessages();
+        return true;
+      }
+
+      source = other;
+    }
+  }
+
+  const bool wasMemoryCard = PROFILEMAN->ProfileWasLoadedFromMemoryCard(pn);
+  GAMESTATE->SavePlayerProfiles();
+
+  if (source != PLAYER_INVALID) {
+    PROFILEMAN->UnloadProfile(source);
+    GAMESTATE->ResetPlayerOptions(source);
+
+    Message guest(MessageIDToString(Message_PlayerProfileSet));
+    guest.SetParam("Player", source);
+    MESSAGEMAN->Broadcast(guest);
+  }
+
+  if (wasMemoryCard) {
+    m_MusicWheel.SetOpenSection("");
+    MEMCARDMAN->UnlockCard(pn);
+    MEMCARDMAN->UnmountCard(pn);
+  }
+
+  PROFILEMAN->UnloadProfile(pn);
+  GAMESTATE->ResetPlayerOptions(pn);
+
+  if (!PROFILEMAN->LoadLocalProfileFromMachine(pn, id)) {
+    return false;
+  }
+
+  GAMESTATE->LoadCurrentSettingsFromProfile(pn);
+
+  Message changed(MessageIDToString(Message_PlayerProfileSet));
+  changed.SetParam("Player", pn);
+  MESSAGEMAN->Broadcast(changed);
+
+  SCREENMAN->RefreshCreditsMessages();
+  LOG->Info(
+      "NFC: activated local profile %s on P%d (previous side: %d)", id.c_str(),
+      pn + 1, source == PLAYER_INVALID ? 0 : source + 1);
+  AfterMusicChange();
+
+  if (wasMemoryCard) {
+    MESSAGEMAN->Broadcast("ReloadScreenForMemoryCards");
+  }
+
+  return true;
+}
+
 // lua start
 #include "LuaBinding.h"
 
@@ -2175,7 +2317,32 @@ class LunaScreenSelectMusic : public Luna<ScreenSelectMusic> {
     return 1;
   }
 
+  static int CanUseNFC(T* p, lua_State* L) {
+    lua_pushboolean(L, p->CanUseNFC());
+    return 1;
+  }
+
+  static int NFCProfile(T* p, lua_State* L) {
+    lua_pushstring(L, p->NFCProfile(SArg(1)).c_str());
+    return 1;
+  }
+
+  static int BindNFC(T* p, lua_State* L) {
+    lua_pushboolean(L, p->BindNFC(SArg(1), Enum::Check<PlayerNumber>(L, 2)));
+    return 1;
+  }
+
+  static int SwitchNFCProfile(T* p, lua_State* L) {
+    lua_pushboolean(
+        L, p->SwitchNFCProfile(SArg(1), Enum::Check<PlayerNumber>(L, 2)));
+    return 1;
+  }
+
   LunaScreenSelectMusic() {
+    ADD_METHOD(CanUseNFC);
+    ADD_METHOD(NFCProfile);
+    ADD_METHOD(BindNFC);
+    ADD_METHOD(SwitchNFCProfile);
     ADD_METHOD(GetGoToOptions);
     ADD_METHOD(GetMusicWheel);
     ADD_METHOD(OpenOptionsList);
