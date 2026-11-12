@@ -73,6 +73,17 @@ else()
                  ${SMDATA_ALL_FILES_HPP})
 endif()
 
+target_sources("${SM_EXE_NAME}" PRIVATE NFCReader.cpp)
+
+option(WITH_NFC "Enable libnfc profile switching" ON)
+
+if(WITH_NFC)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(LIBNFC REQUIRED IMPORTED_TARGET libnfc)
+  target_link_libraries("${SM_EXE_NAME}" PkgConfig::LIBNFC)
+  target_compile_definitions("${SM_EXE_NAME}" PRIVATE WITH_NFC)
+endif()
+
 set_property(TARGET "${SM_EXE_NAME}" PROPERTY CXX_STANDARD 17)
 set_property(TARGET "${SM_EXE_NAME}" PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET "${SM_EXE_NAME}" PROPERTY CXX_EXTENSIONS ON)

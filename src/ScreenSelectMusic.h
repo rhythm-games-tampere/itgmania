@@ -15,6 +15,7 @@
 #include "InputEventPlus.h"
 #include "MessageManager.h"
 #include "MusicWheel.h"
+#include "NFCReader.h"
 #include "OptionsList.h"
 #include "PlayerNumber.h"
 #include "RageSound.h"
@@ -67,10 +68,16 @@ class ScreenSelectMusic : public ScreenWithMenuElements {
 
   bool can_open_options_list(PlayerNumber pn);
 
+  bool CanUseNFC();
+  std::string NFCProfile(const std::string& uid) const;
+  bool BindNFC(const std::string& uid, PlayerNumber pn);
+  bool SwitchNFCProfile(const std::string& uid, PlayerNumber pn);
+
   // Lua
   virtual void PushSelf(lua_State* L);
 
  protected:
+  NFCReader m_nfcReader;
   virtual bool GenericTweenOn() const { return true; }
   virtual bool GenericTweenOff() const { return true; }
   void UpdateSelectButton(PlayerNumber pn, bool bBeingPressed);
